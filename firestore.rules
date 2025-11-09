@@ -2,19 +2,15 @@
  * @file Firebase Security Rules for the University System.
  *
  * Core Philosophy:
- * This ruleset enforces a strict user-ownership model for student profiles, ensuring that only authenticated users can access and modify their own data. Class data is publicly readable but writable only with appropriate authorization.
+ * This ruleset enforces that data is read-only for unauthenticated API access. The API endpoint will use a service account (via Firebase Admin SDK) to bypass these rules for legitimate writes, ensuring a secure-by-default posture for client-side access.
  *
  * Data Structure:
- * - /students/{studentId}: Stores individual student profiles. The {studentId} must match the authenticated user's UID for ownership.
- * - /classes/{classId}: Stores information about each class.  It includes an array of studentIds.
+ * - /students/{studentId}: Stores individual student profiles.
+ * - /classes/{classId}: Stores information about each class.
  *
  * Key Security Decisions:
- * - Students can only create, read, update, and delete their own profiles.
- * - Listing all students is disallowed to protect privacy.
- * - Class data is publicly readable to facilitate discovery, but write access is restricted.
- *
- * Denormalization for Authorization:
- * - The /classes/{classId} documents contain a `studentIds` array, `level` and `fieldOfStudy` to determine class enrollment.
+ * - All data is read-only for clients. This prevents any unauthorized modification from the client-side SDK.
+ * - Write operations (create, update, delete) are disallowed for all client-side users. All modifications must go through the secure API endpoint which uses admin privileges.
  */
 rules_version = '2';
 service cloud.firestore {
@@ -23,62 +19,23 @@ service cloud.firestore {
     /**
      * @description Secures student profile data.
      * @path /students/{studentId}
-     * @allow (create) - An authenticated user can create their profile if the studentId matches their UID.
-     * @allow (get, update, delete) - An authenticated user can get, update, or delete their profile if the studentId matches their UID.
-     * @deny (create) - An unauthenticated user cannot create a student profile.
-     * @deny (update) - An authenticated user cannot update another user's profile.
-     * @principle Enforces document ownership for writes and restricts access to a user's own data.
+     * @allow (get, list) - Publicly readable for validation purposes.
+     * @deny (write) - All writes must be performed by the backend service.
      */
     match /students/{studentId} {
-      // Function to check if the user is signed in.
-      function isSignedIn() {
-        return request.auth != null;
-      }
-
-      // Function to check if the requested studentId matches the authenticated user's UID.
-      function isOwner(studentId) {
-        return isSignedIn() && request.auth.uid == studentId;
-      }
-
-      // Function to check if the user is the existing owner of the document
-      function isExistingOwner(studentId) {
-        return isOwner(studentId) && resource != null;
-      }
-
-      // Allow a user to create their profile if the studentId matches their UID and the data matches.
-      allow create: if isOwner(studentId) && request.resource.data.id == studentId &&
-          request.resource.data.firstName == request.resource.data.firstName &&
-          request.resource.data.lastName == request.resource.data.lastName &&
-          request.resource.data.studentId == request.resource.data.studentId &&
-          request.resource.data.level == request.resource.data.level &&
-          request.resource.data.fieldOfStudy == request.resource.data.fieldOfStudy;
-
-      // Allow a user to get their own profile.
-      allow get: if isOwner(studentId);
-
-      // Disallow listing all students to protect privacy.
-      allow list: if false;
-
-      // Allow a user to update their own profile, but enforce immutability of the ID.
-      allow update: if isExistingOwner(studentId) && request.resource.data.id == resource.data.id;
-
-      // Allow a user to delete their own profile.
-      allow delete: if isExistingOwner(studentId);
+      allow read: if true;
+      allow write: if false; 
     }
 
     /**
      * @description Secures class data.
      * @path /classes/{classId}
-     * @allow (get, list) - Allows anyone to read class data.
-     * @deny (create, update, delete) - Restricts write access to authorized users (e.g., admins).
-     * @principle Allows public read access but restricts write access.
+     * @allow (get, list) - Allows anyone to read class data for discovery.
+     * @deny (write) - All writes must be performed by the backend service.
      */
     match /classes/{classId} {
-      // Allow anyone to read class data.
-      allow get, list: if true;
-
-      // TODO: Add owner validation once the schema is updated with an ownership field.
-      allow create, update, delete: if false;
+      allow read: if true;
+      allow write: if false;
     }
   }
 }

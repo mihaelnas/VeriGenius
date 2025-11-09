@@ -12,7 +12,8 @@ const CodeBlock = ({ code }: { code: string }) => (
 
 const requestBody = `{
   "studentId": "STU12345",
-  "name": "Alice Johnson",
+  "firstName": "Alice",
+  "lastName": "Johnson",
   "level": "Undergraduate",
   "fieldOfStudy": "Computer Science"
 }`;
@@ -20,7 +21,7 @@ const requestBody = `{
 const successResponse = `{
   "success": true,
   "message": "Student validated and enrolled successfully.",
-  "studentId": "STU12345",
+  "studentId": "L0y3c8bS...n89q2A",
   "classId": "CS101"
 }`;
 

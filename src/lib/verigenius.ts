@@ -1,104 +1,117 @@
 import { z } from 'zod';
+import { Firestore, FieldValue } from 'firebase-admin/firestore';
 
 // Schema for student data received in the API request
 export const studentValidationSchema = z.object({
-  studentId: z.string().min(1, 'L\'ID de l\'étudiant est requis'),
-  name: z.string().min(1, 'Le nom de l\'étudiant est requis'),
+  studentId: z.string().min(1, 'Le matricule de l\'étudiant est requis'),
+  firstName: z.string().min(1, 'Le prénom de l\'étudiant est requis'),
+  lastName: z.string().min(1, 'Le nom de l\'étudiant est requis'),
   level: z.string().min(1, 'Le niveau de l\'étudiant est requis'),
-  fieldOfStudy: z.string().min(1, 'Le domaine d\'études est requis'),
+  fieldOfStudy: z.string().min(1, 'La filière est requise'),
 });
 
 export type StudentValidationPayload = z.infer<typeof studentValidationSchema>;
 
-// Internal student representation (mock database record)
+// Internal student representation (matches Firestore document)
 export interface Student {
-  id: string;
-  name: string;
+  id: string; // Document ID
+  firstName: string;
+  lastName: string;
+  studentId: string;
   level: string;
   fieldOfStudy: string;
   status: 'pending' | 'active' | 'inactive';
 }
 
-// Internal class representation
+// Internal class representation (matches Firestore document)
 export interface Class {
-  id: string;
-  name:string;
+  id: string; // Document ID
+  name: string;
   level: string;
   fieldOfStudy: string;
+  studentIds?: string[];
 }
-
-// --- Mock Database ---
-const mockStudents: Student[] = [
-  { id: 'STU12345', name: 'Alice Johnson', level: 'Undergraduate', fieldOfStudy: 'Computer Science', status: 'pending' },
-  { id: 'STU67890', name: 'Bob Williams', level: 'Graduate', fieldOfStudy: 'Data Science', status: 'pending' },
-  { id: 'STU11223', name: 'Charlie Brown', level: 'Undergraduate', fieldOfStudy: 'Electrical Engineering', status: 'pending' },
-  { id: 'STU44556', name: 'Diana Prince', level: 'Undergraduate', fieldOfStudy: 'Computer Science', status: 'active' },
-];
-
-const mockClasses: Class[] = [
-  { id: 'CS101', name: 'Introduction à la programmation', level: 'Undergraduate', fieldOfStudy: 'Computer Science' },
-  { id: 'DS501', name: 'Apprentissage automatique avancé', level: 'Graduate', fieldOfStudy: 'Data Science' },
-  { id: 'EE202', name: 'Circuits numériques', level: 'Undergraduate', fieldOfStudy: 'Electrical Engineering' },
-];
-// --- End Mock Database ---
 
 
 /**
- * Validates student identity against the "university's database"
- * @param payload The student data from the API request
- * @returns The matching student record or null if not found
+ * Validates student identity against the Firestore database.
+ * @param firestore The Firestore instance.
+ * @param payload The student data from the API request.
+ * @returns The matching student record or null if not found.
  */
-export function validateStudentIdentity(payload: StudentValidationPayload): Student | null {
-  const student = mockStudents.find(
-    (s) =>
-      s.id.toLowerCase() === payload.studentId.toLowerCase() &&
-      s.name.toLowerCase() === payload.name.toLowerCase() &&
-      s.level === payload.level &&
-      s.fieldOfStudy === payload.fieldOfStudy
-  );
-  return student || null;
-}
+export async function validateStudentIdentity(firestore: Firestore, payload: StudentValidationPayload): Promise<Student | null> {
+  const studentsRef = firestore.collection('students');
+  const snapshot = await studentsRef
+    .where('studentId', '==', payload.studentId)
+    .where('firstName', '==', payload.firstName)
+    .where('lastName', '==', payload.lastName)
+    .where('level', '==', payload.level)
+    .where('fieldOfStudy', '==', payload.fieldOfStudy)
+    .limit(1)
+    .get();
 
-/**
- * Determines the corresponding class for a validated student
- * @param student A valid student object
- * @returns A matching class or null if not found
- */
-export function assignClassForStudent(student: Student): Class | null {
-    // Simple logic: find a class that matches the student's level and field of study.
-    // In a real scenario, this could be much more complex, e.g., checking prerequisites, class capacity etc.
-    const assignedClass = mockClasses.find(
-        (c) => c.level === student.level && c.fieldOfStudy === student.fieldOfStudy
-    );
-    return assignedClass || null;
-}
-
-/**
- * Simulates updating a student's record in Firestore or another database
- * @param studentId The ID of the student to update
- * @param classId The ID of the class to enroll the student in
- * @returns A boolean indicating success
- */
-export async function updateStudentStatusInDb(studentId: string, classId: string): Promise<boolean> {
-  // In a real application, you would use the Firebase Admin SDK or a client library
-  // to update the student's status to 'active' and add them to the class roster in Firestore.
-  // e.g., 
-  // const studentRef = db.collection('students').doc(studentId);
-  // await studentRef.update({ status: 'active', classId: classId });
-  // 
-  // const classRef = db.collection('classes').doc(classId);
-  // await classRef.update({ students: firebase.firestore.FieldValue.arrayUnion(studentId) });
-  
-  console.log(`Simulation de la mise à jour de la base de données : le statut de l'étudiant ${studentId} est passé à actif et ajouté à la classe ${classId}.`);
-  
-  // Find student in mock DB and update status
-  const student = mockStudents.find(s => s.id === studentId);
-  if (student) {
-    student.status = 'active';
+  if (snapshot.empty) {
+    return null;
   }
 
-  // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 500));
+  const studentDoc = snapshot.docs[0];
+  const studentData = studentDoc.data() as Omit<Student, 'id'>;
 
-  return true;
+  return { ...studentData, id: studentDoc.id };
+}
+
+/**
+ * Determines the corresponding class for a validated student from Firestore.
+ * @param firestore The Firestore instance.
+ * @param student A valid student object.
+ * @returns A matching class or null if not found.
+ */
+export async function assignClassForStudent(firestore: Firestore, student: Student): Promise<Class | null> {
+    const classesRef = firestore.collection('classes');
+    const snapshot = await classesRef
+        .where('level', '==', student.level)
+        .where('fieldOfStudy', '==', student.fieldOfStudy)
+        .limit(1)
+        .get();
+
+    if (snapshot.empty) {
+        return null;
+    }
+    
+    const classDoc = snapshot.docs[0];
+    const classData = classDoc.data() as Omit<Class, 'id'>;
+
+    return { ...classData, id: classDoc.id };
+}
+
+/**
+ * Updates a student's status to 'active' and enrolls them in a class in Firestore.
+ * @param firestore The Firestore instance.
+ * @param studentId The ID of the student to update.
+ * @param classId The ID of the class to enroll the student in.
+ * @returns A boolean indicating success.
+ */
+export async function updateStudentStatusInDb(firestore: Firestore, studentId: string, classId: string): Promise<boolean> {
+  try {
+    const studentRef = firestore.collection('students').doc(studentId);
+    const classRef = firestore.collection('classes').doc(classId);
+
+    const batch = firestore.batch();
+
+    // Update student's status
+    batch.update(studentRef, { status: 'active' });
+
+    // Add student's ID to the class's studentIds array
+    batch.update(classRef, {
+      studentIds: FieldValue.arrayUnion(studentId)
+    });
+
+    await batch.commit();
+    
+    console.log(`Firestore updated: Student ${studentId} status set to active and added to class ${classId}.`);
+    return true;
+  } catch (error) {
+    console.error("Error updating student status in DB:", error);
+    return false;
+  }
 }

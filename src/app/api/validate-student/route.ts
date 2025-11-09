@@ -6,12 +6,15 @@ import {
   assignClassForStudent, 
   updateStudentStatusInDb 
 } from '@/lib/verigenius';
+import { initializeFirebase } from '@/firebase/server';
+import { getFirestore } from 'firebase-admin/firestore';
 
 // It's highly recommended to store the API key in environment variables
 const API_KEY = process.env.VERIGENIUS_API_KEY || 'your-secret-api-key-for-development';
 
 export async function POST(request: Request) {
   try {
+    const { firestore } = initializeFirebase();
     // 1. Check API Key
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -33,7 +36,7 @@ export async function POST(request: Request) {
     const studentPayload = validationResult.data;
 
     // 3. Validate student data against the "database"
-    const student = validateStudentIdentity(studentPayload);
+    const student = await validateStudentIdentity(firestore, studentPayload);
     if (!student) {
       return NextResponse.json({ success: false, error: 'La validation de l\'étudiant a échoué. Veuillez vérifier les données fournies.' }, { status: 404 });
     }
@@ -43,13 +46,13 @@ export async function POST(request: Request) {
     }
 
     // 4. Assign student to a class
-    const assignedClass = assignClassForStudent(student);
+    const assignedClass = await assignClassForStudent(firestore, student);
     if (!assignedClass) {
         return NextResponse.json({ success: false, error: `Impossible de trouver un cours approprié pour ${student.fieldOfStudy} au niveau ${student.level}.` }, { status: 404 });
     }
 
     // 5. Update student status in DB (simulated)
-    const dbUpdateSuccess = await updateStudentStatusInDb(student.id, assignedClass.id);
+    const dbUpdateSuccess = await updateStudentStatusInDb(firestore, student.id, assignedClass.id);
     if (!dbUpdateSuccess) {
       return NextResponse.json({ success: false, error: 'Échec de la mise à jour du statut de l\'étudiant dans la base de données.' }, { status: 500 });
     }
