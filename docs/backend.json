@@ -1,0 +1,124 @@
+{
+  "entities": {
+    "Student": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Student",
+      "type": "object",
+      "description": "Represents a student in the university system.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Student entity."
+        },
+        "firstName": {
+          "type": "string",
+          "description": "The first name of the student."
+        },
+        "lastName": {
+          "type": "string",
+          "description": "The last name of the student."
+        },
+        "studentId": {
+          "type": "string",
+          "description": "The student's unique identification number (matricule)."
+        },
+        "level": {
+          "type": "string",
+          "description": "The student's current academic level (e.g., 'Bachelor', 'Master')."
+        },
+        "fieldOfStudy": {
+          "type": "string",
+          "description": "The student's field of study or major (filiere)."
+        }
+      },
+      "required": [
+        "id",
+        "firstName",
+        "lastName",
+        "studentId",
+        "level",
+        "fieldOfStudy"
+      ]
+    },
+    "Class": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Class",
+      "type": "object",
+      "description": "Represents a class or course offered by the university.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Class entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the class (e.g., 'Introduction to Programming')."
+        },
+        "level": {
+          "type": "string",
+          "description": "The academic level of the class (e.g., '100', '200')."
+        },
+        "fieldOfStudy": {
+          "type": "string",
+          "description": "The field of study to which the class belongs."
+        },
+        "studentIds": {
+          "type": "array",
+          "description": "References to Students enrolled in this Class. (Relationship: Class 1:N Student)",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "level",
+        "fieldOfStudy"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/students/{studentId}",
+        "definition": {
+          "entityName": "Student",
+          "schema": {
+            "$ref": "#/backend/entities/Student"
+          },
+          "description": "Stores student profile information. The document ID is the student's user ID, ensuring path-based ownership. Includes fields: firstName, lastName, studentId, level, fieldOfStudy.",
+          "params": [
+            {
+              "name": "studentId",
+              "description": "The unique identifier of the student, which should match the Firebase Auth UID."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/classes/{classId}",
+        "definition": {
+          "entityName": "Class",
+          "schema": {
+            "$ref": "#/backend/entities/Class"
+          },
+          "description": "Stores class information, including the class name, level, field of study, and a list of enrolled student IDs. Supports efficient class assignment and validation.",
+          "params": [
+            {
+              "name": "classId",
+              "description": "The unique identifier of the class."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to securely manage student and class data while enabling efficient validation and assignment. It uses path-based ownership for student profiles and a combination of path-based ownership with denormalization for managing class enrollments. This approach enables strong security rules with Authorization Independence.\n\n*   **/students/{studentId}**: This collection stores individual student profiles. Path-based ownership ensures that only the authenticated user (student themselves, or an admin) can access and modify their own profile. The studentId is derived from request.auth.uid, thus providing secure validation on user documents.\n*   **/classes/{classId}**: This collection stores information about each class.  It includes an array of studentIds. For scalability and to minimize reads for validation purposes, the class data also contains the level and fieldOfStudy, ensuring that all information needed to validate a student for the class is contained in the class document. This eliminates the need to read the student document during the class assignment process, increasing performance and improving scalability.\n\nThis structure facilitates QAPs because:\n\n*   List operations on `/students` can be secured by limiting access to authenticated users or admin roles (if implemented). Segregation ensures each student has specific access controls based on `request.auth.uid`\n*   List operations on `/classes` are secured similarly, typically restricted to users with appropriate roles (e.g., professors, admins) or students enrolled in the class."
+  }
+}

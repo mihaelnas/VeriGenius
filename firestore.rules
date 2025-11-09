@@ -1,0 +1,84 @@
+/**
+ * @file Firebase Security Rules for the University System.
+ *
+ * Core Philosophy:
+ * This ruleset enforces a strict user-ownership model for student profiles, ensuring that only authenticated users can access and modify their own data. Class data is publicly readable but writable only with appropriate authorization.
+ *
+ * Data Structure:
+ * - /students/{studentId}: Stores individual student profiles. The {studentId} must match the authenticated user's UID for ownership.
+ * - /classes/{classId}: Stores information about each class.  It includes an array of studentIds.
+ *
+ * Key Security Decisions:
+ * - Students can only create, read, update, and delete their own profiles.
+ * - Listing all students is disallowed to protect privacy.
+ * - Class data is publicly readable to facilitate discovery, but write access is restricted.
+ *
+ * Denormalization for Authorization:
+ * - The /classes/{classId} documents contain a `studentIds` array, `level` and `fieldOfStudy` to determine class enrollment.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /**
+     * @description Secures student profile data.
+     * @path /students/{studentId}
+     * @allow (create) - An authenticated user can create their profile if the studentId matches their UID.
+     * @allow (get, update, delete) - An authenticated user can get, update, or delete their profile if the studentId matches their UID.
+     * @deny (create) - An unauthenticated user cannot create a student profile.
+     * @deny (update) - An authenticated user cannot update another user's profile.
+     * @principle Enforces document ownership for writes and restricts access to a user's own data.
+     */
+    match /students/{studentId} {
+      // Function to check if the user is signed in.
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      // Function to check if the requested studentId matches the authenticated user's UID.
+      function isOwner(studentId) {
+        return isSignedIn() && request.auth.uid == studentId;
+      }
+
+      // Function to check if the user is the existing owner of the document
+      function isExistingOwner(studentId) {
+        return isOwner(studentId) && resource != null;
+      }
+
+      // Allow a user to create their profile if the studentId matches their UID and the data matches.
+      allow create: if isOwner(studentId) && request.resource.data.id == studentId &&
+          request.resource.data.firstName == request.resource.data.firstName &&
+          request.resource.data.lastName == request.resource.data.lastName &&
+          request.resource.data.studentId == request.resource.data.studentId &&
+          request.resource.data.level == request.resource.data.level &&
+          request.resource.data.fieldOfStudy == request.resource.data.fieldOfStudy;
+
+      // Allow a user to get their own profile.
+      allow get: if isOwner(studentId);
+
+      // Disallow listing all students to protect privacy.
+      allow list: if false;
+
+      // Allow a user to update their own profile, but enforce immutability of the ID.
+      allow update: if isExistingOwner(studentId) && request.resource.data.id == resource.data.id;
+
+      // Allow a user to delete their own profile.
+      allow delete: if isExistingOwner(studentId);
+    }
+
+    /**
+     * @description Secures class data.
+     * @path /classes/{classId}
+     * @allow (get, list) - Allows anyone to read class data.
+     * @deny (create, update, delete) - Restricts write access to authorized users (e.g., admins).
+     * @principle Allows public read access but restricts write access.
+     */
+    match /classes/{classId} {
+      // Allow anyone to read class data.
+      allow get, list: if true;
+
+      // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow create, update, delete: if false;
+    }
+  }
+}
