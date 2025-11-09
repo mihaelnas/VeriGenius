@@ -2,10 +2,10 @@ import { z } from 'zod';
 
 // Schema for student data received in the API request
 export const studentValidationSchema = z.object({
-  studentId: z.string().min(1, 'Student ID is required'),
-  name: z.string().min(1, 'Student name is required'),
-  level: z.string().min(1, 'Student level is required'),
-  fieldOfStudy: z.string().min(1, 'Field of study is required'),
+  studentId: z.string().min(1, 'L\'ID de l\'étudiant est requis'),
+  name: z.string().min(1, 'Le nom de l\'étudiant est requis'),
+  level: z.string().min(1, 'Le niveau de l\'étudiant est requis'),
+  fieldOfStudy: z.string().min(1, 'Le domaine d\'études est requis'),
 });
 
 export type StudentValidationPayload = z.infer<typeof studentValidationSchema>;
@@ -36,9 +36,9 @@ const mockStudents: Student[] = [
 ];
 
 const mockClasses: Class[] = [
-  { id: 'CS101', name: 'Introduction to Programming', level: 'Undergraduate', fieldOfStudy: 'Computer Science' },
-  { id: 'DS501', name: 'Advanced Machine Learning', level: 'Graduate', fieldOfStudy: 'Data Science' },
-  { id: 'EE202', name: 'Digital Circuits', level: 'Undergraduate', fieldOfStudy: 'Electrical Engineering' },
+  { id: 'CS101', name: 'Introduction à la programmation', level: 'Undergraduate', fieldOfStudy: 'Computer Science' },
+  { id: 'DS501', name: 'Apprentissage automatique avancé', level: 'Graduate', fieldOfStudy: 'Data Science' },
+  { id: 'EE202', name: 'Circuits numériques', level: 'Undergraduate', fieldOfStudy: 'Electrical Engineering' },
 ];
 // --- End Mock Database ---
 
@@ -89,7 +89,7 @@ export async function updateStudentStatusInDb(studentId: string, classId: string
   // const classRef = db.collection('classes').doc(classId);
   // await classRef.update({ students: firebase.firestore.FieldValue.arrayUnion(studentId) });
   
-  console.log(`Simulating DB update: Student ${studentId} status set to active and added to class ${classId}.`);
+  console.log(`Simulation de la mise à jour de la base de données : le statut de l'étudiant ${studentId} est passé à actif et ajouté à la classe ${classId}.`);
   
   // Find student in mock DB and update status
   const student = mockStudents.find(s => s.id === studentId);

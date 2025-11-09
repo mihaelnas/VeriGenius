@@ -36,18 +36,18 @@ export default function Home() {
   const features = [
     {
       icon: <ShieldCheck className="h-8 w-8 text-primary" />,
-      title: "Student Data Validation",
-      description: "Robustly validates student identity and academic details against the university's central database, ensuring data integrity."
+      title: "Validation des données des étudiants",
+      description: "Valide de manière robuste l'identité de l'étudiant et les détails académiques par rapport à la base de données centrale de l'université, garantissant l'intégrité des données."
     },
     {
       icon: <GraduationCap className="h-8 w-8 text-primary" />,
-      title: "Automated Class Assignment",
-      description: "Intelligently determines and assigns the correct class for each validated student based on their level and field of study."
+      title: "Attribution automatisée des cours",
+      description: "Détermine et attribue intelligemment le cours approprié pour chaque étudiant validé en fonction de son niveau et de son domaine d'études."
     },
     {
       icon: <Database className="h-8 w-8 text-primary" />,
-      title: "n8n & Firestore Integration",
-      description: "Seamlessly updates student status to 'active' and enrolls them into class documents within your Firestore database."
+      title: "Intégration n8n & Firestore",
+      description: "Met à jour de manière transparente le statut de l'étudiant à 'actif' et les inscrit dans les documents de cours de votre base de données Firestore."
     }
   ];
 
@@ -56,7 +56,7 @@ export default function Home() {
       <header className="container mx-auto px-4 py-4">
         <div className="flex items-center gap-2">
           <GraduationCap className="h-7 w-7 text-primary" />
-          <h1 className="text-2xl font-bold text-primary">VeriGenius API</h1>
+          <h1 className="text-2xl font-bold text-primary">API VeriGenius</h1>
         </div>
       </header>
 
@@ -65,10 +65,10 @@ export default function Home() {
         <section className="container mx-auto px-4 pt-12 pb-16 text-center">
           <div className="mb-8">
             <h2 className="text-4xl md:text-6xl font-extrabold tracking-tight text-primary mb-4">
-              Seamless Student Validation
+              Validation transparente des étudiants
             </h2>
             <p className="max-w-3xl mx-auto text-lg md:text-xl text-muted-foreground">
-              A secure, reliable API endpoint for validating student data and automating class assignments with ease.
+              Un point de terminaison d'API sécurisé et fiable pour valider les données des étudiants et automatiser facilement les affectations de cours.
             </p>
           </div>
           {heroImage && (
@@ -108,47 +108,47 @@ export default function Home() {
         {/* API Documentation Section */}
         <section className="container mx-auto px-4 py-16">
           <div className="text-center mb-12">
-            <h3 className="text-3xl md:text-4xl font-bold text-primary">API Quickstart</h3>
-            <p className="mt-2 text-lg text-muted-foreground">Integrate in minutes with our straightforward API endpoint.</p>
+            <h3 className="text-3xl md:text-4xl font-bold text-primary">Démarrage rapide de l'API</h3>
+            <p className="mt-2 text-lg text-muted-foreground">Intégrez en quelques minutes avec notre point de terminaison d'API simple.</p>
           </div>
 
           <Card className="max-w-4xl mx-auto shadow-xl">
             <CardContent className="p-2 md:p-6">
               <Tabs defaultValue="endpoint" className="w-full">
                 <TabsList className="grid w-full grid-cols-2 md:grid-cols-4 bg-primary/5">
-                  <TabsTrigger value="endpoint"><KeyRound className="mr-2 h-4 w-4" />Endpoint</TabsTrigger>
-                  <TabsTrigger value="request"><Code className="mr-2 h-4 w-4"/>Request</TabsTrigger>
-                  <TabsTrigger value="success">Success</TabsTrigger>
-                  <TabsTrigger value="error">Error</TabsTrigger>
+                  <TabsTrigger value="endpoint"><KeyRound className="mr-2 h-4 w-4" />Point de terminaison</TabsTrigger>
+                  <TabsTrigger value="request"><Code className="mr-2 h-4 w-4"/>Requête</TabsTrigger>
+                  <TabsTrigger value="success">Succès</TabsTrigger>
+                  <TabsTrigger value="error">Erreur</TabsTrigger>
                 </TabsList>
                 <div className="pt-6">
                   <TabsContent value="endpoint">
                     <h4 className="font-semibold text-lg mb-2 text-primary">POST /api/validate-student</h4>
                     <p className="text-muted-foreground mb-4">
-                      The single endpoint for all student validation requests. Secure your requests by including an API key in the Authorization header.
+                      Le seul point de terminaison pour toutes les demandes de validation des étudiants. Sécurisez vos demandes en incluant une clé API dans l'en-tête d'autorisation.
                     </p>
                     <div className="bg-primary/10 dark:bg-primary/5 p-4 rounded-lg text-sm text-foreground border border-primary/20">
-                      <code>Authorization: Bearer YOUR_API_KEY</code>
+                      <code>Authorization: Bearer VOTRE_CLÉ_API</code>
                     </div>
                   </TabsContent>
                   <TabsContent value="request">
-                    <h4 className="font-semibold text-lg mb-2 text-primary">Request Body</h4>
+                    <h4 className="font-semibold text-lg mb-2 text-primary">Corps de la requête</h4>
                     <p className="text-muted-foreground mb-4">
-                      Provide the student's details in the request body for validation.
+                      Fournissez les détails de l'étudiant dans le corps de la requête pour validation.
                     </p>
                     <CodeBlock code={requestBody} />
                   </TabsContent>
                   <TabsContent value="success">
-                    <h4 className="font-semibold text-lg mb-2 text-green-600 dark:text-green-400">Success Response (200 OK)</h4>
+                    <h4 className="font-semibold text-lg mb-2 text-green-600 dark:text-green-400">Réponse de succès (200 OK)</h4>
                     <p className="text-muted-foreground mb-4">
-                      On successful validation, the API returns the student and newly assigned class ID.
+                      En cas de validation réussie, l'API renvoie l'étudiant et l'ID de cours nouvellement attribué.
                     </p>
                     <CodeBlock code={successResponse} />
                   </TabsContent>
                   <TabsContent value="error">
-                    <h4 className="font-semibold text-lg mb-2 text-destructive">Error Response (4xx/5xx)</h4>
+                    <h4 className="font-semibold text-lg mb-2 text-destructive">Réponse d'erreur (4xx/5xx)</h4>
                      <p className="text-muted-foreground mb-4">
-                      If validation fails or an error occurs, the API provides a clear error message.
+                      Si la validation échoue ou qu'une erreur se produit, l'API fournit un message d'erreur clair.
                     </p>
                     <CodeBlock code={errorResponse} />
                   </TabsContent>
@@ -161,7 +161,7 @@ export default function Home() {
 
       <footer className="bg-card py-6 mt-16">
         <div className="container mx-auto px-4 text-center text-muted-foreground">
-          <p>&copy; {new Date().getFullYear()} VeriGenius API. All Rights Reserved.</p>
+          <p>&copy; {new Date().getFullYear()} API VeriGenius. Tous droits réservés.</p>
         </div>
       </footer>
     </div>

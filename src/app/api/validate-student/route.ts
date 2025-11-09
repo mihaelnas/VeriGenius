@@ -15,11 +15,11 @@ export async function POST(request: Request) {
     // 1. Check API Key
     const authHeader = request.headers.get('Authorization');
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ success: false, error: 'Authorization header missing or malformed' }, { status: 401 });
+      return NextResponse.json({ success: false, error: 'En-tête d\'autorisation manquant ou mal formé' }, { status: 401 });
     }
     const providedKey = authHeader.split(' ')[1];
     if (providedKey !== API_KEY) {
-      return NextResponse.json({ success: false, error: 'Invalid API key' }, { status: 401 });
+      return NextResponse.json({ success: false, error: 'Clé d\'API invalide' }, { status: 401 });
     }
 
     // 2. Parse and validate request body
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const validationResult = studentValidationSchema.safeParse(body);
 
     if (!validationResult.success) {
-      return NextResponse.json({ success: false, error: 'Invalid request body', details: validationResult.error.flatten() }, { status: 400 });
+      return NextResponse.json({ success: false, error: 'Corps de la requête invalide', details: validationResult.error.flatten() }, { status: 400 });
     }
     
     const studentPayload = validationResult.data;
@@ -35,39 +35,39 @@ export async function POST(request: Request) {
     // 3. Validate student data against the "database"
     const student = validateStudentIdentity(studentPayload);
     if (!student) {
-      return NextResponse.json({ success: false, error: 'Student validation failed. Please check the provided data.' }, { status: 404 });
+      return NextResponse.json({ success: false, error: 'La validation de l\'étudiant a échoué. Veuillez vérifier les données fournies.' }, { status: 404 });
     }
     
     if (student.status === 'active') {
-       return NextResponse.json({ success: false, error: 'Student is already active.' }, { status: 409 });
+       return NextResponse.json({ success: false, error: 'L\'étudiant est déjà actif.' }, { status: 409 });
     }
 
     // 4. Assign student to a class
     const assignedClass = assignClassForStudent(student);
     if (!assignedClass) {
-        return NextResponse.json({ success: false, error: `Could not find a suitable class for ${student.fieldOfStudy} at ${student.level} level.` }, { status: 404 });
+        return NextResponse.json({ success: false, error: `Impossible de trouver un cours approprié pour ${student.fieldOfStudy} au niveau ${student.level}.` }, { status: 404 });
     }
 
     // 5. Update student status in DB (simulated)
     const dbUpdateSuccess = await updateStudentStatusInDb(student.id, assignedClass.id);
     if (!dbUpdateSuccess) {
-      return NextResponse.json({ success: false, error: 'Failed to update student status in the database.' }, { status: 500 });
+      return NextResponse.json({ success: false, error: 'Échec de la mise à jour du statut de l\'étudiant dans la base de données.' }, { status: 500 });
     }
     
     // 6. Return successful response
     return NextResponse.json({
       success: true,
-      message: 'Student validated and enrolled successfully.',
+      message: 'Étudiant validé et inscrit avec succès.',
       studentId: student.id,
       classId: assignedClass.id,
       className: assignedClass.name
     });
 
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('Erreur API:', error);
     if (error instanceof z.ZodError) {
-       return NextResponse.json({ success: false, error: 'Invalid JSON payload' }, { status: 400 });
+       return NextResponse.json({ success: false, error: 'Charge utile JSON invalide' }, { status: 400 });
     }
-    return NextResponse.json({ success: false, error: 'An unexpected internal server error occurred.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: 'Une erreur interne inattendue s\'est produite.' }, { status: 500 });
   }
 }

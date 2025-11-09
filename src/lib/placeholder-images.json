@@ -2,7 +2,7 @@
   "placeholderImages": [
     {
       "id": "hero-image",
-      "description": "Abstract network of nodes representing data validation and connections.",
+      "description": "Réseau abstrait de nœuds représentant la validation des données et les connexions.",
       "imageUrl": "https://images.unsplash.com/photo-1690029670479-9fee2fa120eb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHw4fHxhYnN0cmFjdCUyMG5ldHdvcmt8ZW58MHx8fHwxNzYyNjQ5NTg4fDA&ixlib=rb-4.1.0&q=80&w=1080",
       "imageHint": "abstract network"
     }
