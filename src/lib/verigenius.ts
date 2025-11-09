@@ -61,7 +61,7 @@ export async function validateStudentIdentity(firestore: Firestore, payload: Stu
 }
 
 /**
- * Determines the corresponding class for a validated student from Firestore.
+ * Finds all matching classes and assigns the student to the one with the fewest students.
  * @param firestore The Firestore instance.
  * @param student A valid student object.
  * @returns A matching class or null if not found.
@@ -71,17 +71,29 @@ export async function assignClassForStudent(firestore: Firestore, student: Stude
     const snapshot = await classesRef
         .where('level', '==', student.level)
         .where('fieldOfStudy', '==', student.fieldOfStudy)
-        .limit(1)
         .get();
 
     if (snapshot.empty) {
-        return null;
+        return null; // No classes found for this level and field of study
     }
     
-    const classDoc = snapshot.docs[0];
-    const classData = classDoc.data() as Omit<Class, 'id'>;
+    const classes = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+            id: doc.id,
+            name: data.name,
+            level: data.level,
+            fieldOfStudy: data.fieldOfStudy,
+            studentIds: data.studentIds || []
+        } as Class;
+    });
 
-    return { ...classData, id: classDoc.id };
+    // Find the class with the minimum number of students
+    const classWithFewestStudents = classes.reduce((prev, current) => {
+        return (prev.studentIds!.length < current.studentIds!.length) ? prev : current;
+    });
+
+    return classWithFewestStudents;
 }
 
 /**
