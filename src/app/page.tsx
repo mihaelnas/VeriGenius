@@ -1,13 +1,14 @@
 
 'use client';
 
-import { useState, useEffect }
-from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useUser, useAuth } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, PlusCircle, UserX, UserPlus, Edit, Trash2 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { MoreHorizontal, PlusCircle, UserX, UserPlus, Edit, Trash2, LogOut, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { StudentForm, StudentFormData } from '@/components/StudentForm';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -15,13 +16,25 @@ import { Badge } from '@/components/ui/badge';
 import type { Student } from '@/lib/verigenius-types';
 
 export default function Home() {
-    const [students, setStudents] = useState < (Student & { id: string })[] > ([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [students, setStudents] = useState<(Student & { id: string })[]>([]);
+    const [isLoadingData, setIsLoadingData] = useState(true);
     const [isFormOpen, setIsFormOpen] = useState(false);
-    const [selectedStudent, setSelectedStudent] = useState < (Student & { id: string }) | null > (null);
+    const [selectedStudent, setSelectedStudent] = useState<(Student & { id: string }) | null>(null);
     const { toast } = useToast();
+    const { user, isUserLoading } = useUser();
+    const router = useRouter();
+    const auth = useAuth();
+
+    // Redirection si l'utilisateur n'est pas connecté
+    useEffect(() => {
+        if (!isUserLoading && !user) {
+            router.push('/login');
+        }
+    }, [user, isUserLoading, router]);
 
     async function fetchStudents() {
+        if (!user) return;
+        setIsLoadingData(true);
         try {
             const response = await fetch('/api/students');
             if (!response.ok) throw new Error('Failed to fetch students');
@@ -34,13 +47,15 @@ export default function Home() {
                 description: "Impossible de charger la liste des étudiants.",
             });
         } finally {
-            setIsLoading(false);
+            setIsLoadingData(false);
         }
     }
 
     useEffect(() => {
-        fetchStudents();
-    }, []);
+        if (user) {
+            fetchStudents();
+        }
+    }, [user]);
 
     const handleFormSubmit = async (data: StudentFormData) => {
         const method = selectedStudent ? 'PUT' : 'POST';
@@ -97,6 +112,11 @@ export default function Home() {
             });
         }
     };
+    
+    const handleLogout = async () => {
+        await auth.signOut();
+        router.push('/login');
+    };
 
     const openCreateForm = () => {
         setSelectedStudent(null);
@@ -119,6 +139,14 @@ export default function Home() {
             default:
                 return 'secondary';
         }
+    };
+    
+    if (isUserLoading || !user) {
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            </div>
+        );
     }
 
     return (
@@ -128,9 +156,25 @@ export default function Home() {
                     <UserPlus className="h-7 w-7 text-primary" />
                     <h1 className="text-2xl font-bold text-primary">Gestion des Étudiants</h1>
                 </div>
-                <Button onClick={openCreateForm}>
-                    <PlusCircle className="mr-2 h-4 w-4" /> Ajouter un étudiant
-                </Button>
+                 <div className="flex items-center gap-4">
+                    <Button onClick={openCreateForm}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> Ajouter un étudiant
+                    </Button>
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                             <Button variant="outline" className="flex items-center gap-2">
+                                {user.email}
+                                <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
+                                <LogOut className="mr-2 h-4 w-4" />
+                                Déconnexion
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
             </header>
 
             <main className="flex-grow container mx-auto px-4">
@@ -151,9 +195,13 @@ export default function Home() {
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {isLoading ? (
+                                {isLoadingData ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="text-center">Chargement...</TableCell>
+                                        <TableCell colSpan={6} className="text-center">
+                                            <div className="flex justify-center items-center p-8">
+                                                <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                            </div>
+                                        </TableCell>
                                     </TableRow>
                                 ) : students.length === 0 ? (
                                     <TableRow>

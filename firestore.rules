@@ -1,29 +1,11 @@
-/**
- * @file Firebase Security Rules for the University System.
- *
- * Core Philosophy:
- * This ruleset ensures that all database interactions are mediated through a secure backend API.
- * Client-side (unauthenticated) users have no read or write access.
- * Server-side operations, authenticated via a service account, bypass these rules.
- *
- * Data Structure:
- * - /students/{studentId}: Stores individual student profiles.
- * - /classes/{classId}: Stores information about each class.
- *
- * Key Security Decisions:
- * - Default Deny: All paths are closed by default.
- * - Server-Side Writes: All write operations (create, update, delete) are disallowed for clients.
- *   This forces all data mutations to go through the backend API, which uses admin privileges.
- * - No Client-Side Reads: Clients are not allowed to directly read from the database,
- *   preventing unauthorized data exposure. The API will serve as the gatekeeper for all data.
- */
+
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Deny all reads and writes to any document by default.
+    
+    // Les administrateurs authentifiés peuvent tout faire
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if request.auth != null;
     }
   }
 }
