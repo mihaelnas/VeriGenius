@@ -15,6 +15,7 @@ const firebaseConfig = {
 };
 
 // --- Initialisation stable de l'app client ---
+// Cette fonction garantit que nous ne réinitialisons pas l'application à chaque requête
 let clientApp: FirebaseApp;
 if (!getApps().length) {
     clientApp = initializeApp(firebaseConfig);
@@ -29,12 +30,14 @@ export async function POST(request: NextRequest) {
     try {
         const requestBody = await request.json();
 
+        // 1. Validation des données d'entrée
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
             return NextResponse.json({ success: false, message: "Invalid validation data.", errors: validation.error.flatten() }, { status: 400 });
         }
         const { studentId, firstName, lastName } = validation.data;
 
+        // 2. Requête à Firestore pour trouver l'étudiant
         const studentsRef = collection(clientDb, "students");
         const q = query(studentsRef, where("studentId", "==", studentId));
         const querySnapshot = await getDocs(q);
@@ -46,6 +49,7 @@ export async function POST(request: NextRequest) {
         const studentDoc = querySnapshot.docs[0];
         const studentData = studentDoc.data() as Student;
 
+        // 3. Comparaison des informations
         const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
         const isLastNameMatch = studentData.lastName.toUpperCase() === lastName.toUpperCase();
 
@@ -53,10 +57,12 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({ success: false, message: "Validation failed: First name or last name does not match." }, { status: 401 });
         }
 
+        // 4. Vérification du statut de l'étudiant
         if (studentData.status === 'inactive') {
             return NextResponse.json({ success: false, message: "Validation failed: Student account is inactive." }, { status: 403 });
         }
         
+        // 5. Succès de la validation
         const responsePayload = {
             success: true,
             message: "Validation successful.",
@@ -74,6 +80,7 @@ export async function POST(request: NextRequest) {
 
     } catch (error: any) {
         console.error("Internal API Error:", error);
+        // Cette erreur est une erreur serveur inattendue, pas une erreur de validation
         return NextResponse.json({ success: false, message: "Internal server error.", error: error.message }, { status: 500 });
     }
 }
