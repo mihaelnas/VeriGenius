@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
     try {
         const requestBody = await request.json();
 
-        // 1. Validation des données d'entrée (Étape 1 - acquise)
+        // 1. Validation des données d'entrée
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
             return NextResponse.json({ 
@@ -33,9 +33,10 @@ export async function POST(request: NextRequest) {
 
         const { studentId, firstName, lastName } = validation.data;
 
-        // 2. Exécution de la requête (Étape 2 - acquise)
+        // 2. Exécution de la requête
+        // Note: Firestore queries are case-sensitive. We will perform a case-insensitive check after fetching.
         const studentsRef = collection(db, 'students');
-        const q = query(studentsRef, where('studentId', '==', studentId));
+        const q = query(studentsRef, where('studentId', '==', studentId.toUpperCase()));
         const querySnapshot = await getDocs(q);
 
         // 3. Traitement des résultats
@@ -49,12 +50,16 @@ export async function POST(request: NextRequest) {
         const studentDoc = querySnapshot.docs[0];
         const studentData = studentDoc.data() as Omit<Student, 'id'>;
 
-        // Vérification du nom et du prénom (insensible à la casse)
-        if (studentData.firstName.toLowerCase() !== firstName.toLowerCase() || studentData.lastName.toLowerCase() !== lastName.toLowerCase()) {
+        // Vérification du matricule, nom et prénom (insensible à la casse)
+        if (
+            studentData.studentId.toLowerCase() !== studentId.toLowerCase() ||
+            studentData.firstName.toLowerCase() !== firstName.toLowerCase() || 
+            studentData.lastName.toLowerCase() !== lastName.toLowerCase()
+        ) {
             return NextResponse.json({
                 success: false,
-                message: "First name or last name does not match.",
-            }, { status: 403 }); // 403 Forbidden est plus approprié qu'un 404
+                message: "Student ID, first name, or last name does not match.",
+            }, { status: 403 });
         }
         
         // Vérification du statut
@@ -65,14 +70,15 @@ export async function POST(request: NextRequest) {
             }, { status: 403 });
         }
 
-        // Si tout est correct, renvoyer les données de l'étudiant
+        // Si tout est correct, renvoyer les données de l'étudiant, y compris la classe
         const responsePayload = {
             firstName: studentData.firstName,
             lastName: studentData.lastName,
             studentId: studentData.studentId,
             fieldOfStudy: studentData.fieldOfStudy,
             level: studentData.level,
-            status: studentData.status
+            status: studentData.status,
+            classId: studentData.classId // Ajout de la classe
         };
 
         return NextResponse.json({
