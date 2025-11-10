@@ -5,7 +5,7 @@ import { initializeApp, getApps, getApp, deleteApp, FirebaseOptions } from 'fire
 import { getFirestore as getClientFirestore, collection, query, where, getDocs } from 'firebase/firestore';
 import * as admin from 'firebase-admin';
 
-// --- Configuration Firebase ---
+// --- Configuration Firebase Client ---
 const firebaseConfig: FirebaseOptions = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -16,16 +16,14 @@ const firebaseConfig: FirebaseOptions = {
 };
 
 // --- Initialisation du SDK Admin ---
-// Pour l'écriture sécurisée des logs
 function initializeAdminApp() {
-    const appName = `firebase-admin-app:${Date.now()}`;
-    if (admin.apps.some(app => app?.name === appName)) {
-        return admin.app(appName);
+    // Prevent re-initialization
+    if (admin.apps.find(app => app?.name === 'admin-app-for-logging')) {
+        return admin.app('admin-app-for-logging');
     }
     
-    // Vérification que les variables d'environnement sont bien présentes
     if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
-        throw new Error("Firebase Admin SDK environment variables are not set.");
+        throw new Error("Firebase Admin SDK environment variables are not set for logging.");
     }
     
     return admin.initializeApp({
@@ -34,44 +32,48 @@ function initializeAdminApp() {
             clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
             privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
         }),
-    }, appName);
+    }, 'admin-app-for-logging');
 }
 
-
 // --- Initialisation du SDK Client ---
-// Pour la lecture des données étudiant
 function initializeClientApp() {
-    const appName = `firebase-client-app:${Date.now()}`;
+    const appName = 'client-app-for-reading';
     if (getApps().some(app => app.name === appName)) {
         return getApp(appName);
     }
     return initializeApp(firebaseConfig, appName);
 }
 
+// --- Fonction de Journalisation ---
+async function writeLog(adminApp: admin.app.App, logData: any) {
+    try {
+        await adminApp.firestore().collection('request-logs').add(logData);
+    } catch (logError) {
+        console.error("CRITICAL: Failed to write log to Firestore:", logError);
+        // We don't re-throw, as failing to log shouldn't fail the main request
+    }
+}
+
 // --- Logique de l'API ---
 export async function POST(request: NextRequest) {
     let requestBody: any;
-    const clientIp = request.ip || request.headers.get('x-forwarded-for') || 'inconnu';
+    const clientIp = request.ip || request.headers.get('x-forwarded-for') || 'unknown';
     let responsePayload: object = {};
     let statusCode: number = 500;
     let isSuccess = false;
-
     const timestamp = new Date().toISOString();
 
     const clientApp = initializeClientApp();
-    const clientDb = getClientFirestore(clientApp);
-    
-    let adminApp: admin.app.App | null = null;
-    try {
-        adminApp = initializeAdminApp();
-        const adminDb = adminApp.firestore();
+    const adminApp = initializeAdminApp();
 
+    try {
         // 1. Validation de la requête
         try {
             requestBody = await request.json();
         } catch (jsonError) {
             statusCode = 400;
             responsePayload = { success: false, message: "Invalid JSON body." };
+            await writeLog(adminApp, { timestamp, requestBody: requestBody || {}, responseBody: responsePayload, statusCode, isSuccess, clientIp });
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
@@ -79,11 +81,13 @@ export async function POST(request: NextRequest) {
         if (!validation.success) {
             statusCode = 400;
             responsePayload = { success: false, message: "Invalid validation data.", errors: validation.error.flatten() };
+            await writeLog(adminApp, { timestamp, requestBody, responseBody: responsePayload, statusCode, isSuccess, clientIp });
             return NextResponse.json(responsePayload, { status: statusCode });
         }
         const { studentId, firstName, lastName } = validation.data;
 
         // 2. Requête Firestore avec le SDK CLIENT (pour la lecture)
+        const clientDb = getClientFirestore(clientApp);
         const studentsRef = collection(clientDb, "students");
         const q = query(studentsRef, where("studentId", "==", studentId));
         const querySnapshot = await getDocs(q);
@@ -91,6 +95,7 @@ export async function POST(request: NextRequest) {
         if (querySnapshot.empty) {
             statusCode = 404;
             responsePayload = { success: false, message: `Validation failed: Student with matricule '${studentId}' not found.` };
+            await writeLog(adminApp, { timestamp, requestBody, responseBody: responsePayload, statusCode, isSuccess, clientIp });
             return NextResponse.json(responsePayload, { status: statusCode });
         }
         const studentDoc = querySnapshot.docs[0];
@@ -103,12 +108,14 @@ export async function POST(request: NextRequest) {
         if (!isFirstNameMatch || !isLastNameMatch) {
             statusCode = 401;
             responsePayload = { success: false, message: "Validation failed: First name or last name does not match." };
+            await writeLog(adminApp, { timestamp, requestBody, responseBody: responsePayload, statusCode, isSuccess, clientIp });
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
         if (studentData.status === 'inactive') {
             statusCode = 403;
             responsePayload = { success: false, message: "Validation failed: Student account is inactive." };
+            await writeLog(adminApp, { timestamp, requestBody, responseBody: responsePayload, statusCode, isSuccess, clientIp });
             return NextResponse.json(responsePayload, { status: statusCode });
         }
         
@@ -128,33 +135,14 @@ export async function POST(request: NextRequest) {
             }
         };
 
+        await writeLog(adminApp, { timestamp, requestBody, responseBody: responsePayload, statusCode, isSuccess, clientIp });
         return NextResponse.json(responsePayload, { status: statusCode });
 
     } catch (error: any) {
         console.error("Internal API Error:", error);
         statusCode = 500;
         responsePayload = { success: false, message: "Internal server error.", error: error.message };
+        await writeLog(adminApp, { timestamp, requestBody: requestBody || {}, responseBody: responsePayload, statusCode, isSuccess, clientIp });
         return NextResponse.json(responsePayload, { status: statusCode });
-
-    } finally {
-        // 5. Journalisation avec le SDK ADMIN (pour l'écriture)
-        if (adminApp) {
-             try {
-                await adminApp.firestore().collection('request-logs').add({
-                    timestamp,
-                    requestBody: requestBody || {},
-                    responseBody: responsePayload,
-                    statusCode,
-                    isSuccess,
-                    clientIp,
-                });
-             } catch (logError) {
-                console.error("Failed to write to log:", logError);
-             }
-             // Nettoyage de l'app admin
-             await adminApp.delete();
-        }
-        // Nettoyage de l'app client
-        await deleteApp(clientApp);
     }
 }
