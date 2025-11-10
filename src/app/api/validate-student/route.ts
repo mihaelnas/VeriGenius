@@ -69,42 +69,38 @@ async function logApiRequest(db: admin.firestore.Firestore, requestBody: any, re
 
 export async function POST(request: NextRequest) {
     const clientIp = request.ip;
-    let requestBody: any;
-
-    try {
-        requestBody = await request.json();
-    } catch (error) {
-        // Cette erreur est fondamentale, on ne peut pas encore initialiser la DB pour logger.
-        const response = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
-        return NextResponse.json(response, { status: 400 });
-    }
-    
-    // Valider les données de la requête AVANT d'initialiser Firebase
-    const validation = studentValidationSchema.safeParse(requestBody);
-    if (!validation.success) {
-        let db;
-        try {
-            db = initializeAdminApp();
-            const response = { success: false, message: "Données de validation invalides.", errors: validation.error.flatten() };
-            await logApiRequest(db, requestBody, response, 400, clientIp);
-            return NextResponse.json(response, { status: 400 });
-        } catch (initError: any) {
-            const response = { success: false, message: "Données de validation invalides et erreur d'initialisation du serveur.", errors: validation.error.flatten() };
-            console.error("Échec de l'initialisation de la base de données Admin après une erreur de validation:", initError.message);
-            return NextResponse.json(response, { status: 400 });
-        }
-    }
-    
-    // Si la validation réussit, on continue avec l'initialisation et la logique métier
+    let requestBody: any = {};
     let db: admin.firestore.Firestore;
+
+    // 1. Initialiser la DB en premier
     try {
         db = initializeAdminApp();
     } catch (error: any) {
         console.error("Échec de l'initialisation de la base de données Admin:", error.message);
+        // Ne peut pas journaliser si la DB ne s'initialise pas.
         const response = { success: false, message: "Erreur critique du serveur: La base de données n'a pas pu être initialisée." };
         return NextResponse.json(response, { status: 500 });
     }
 
+    // 2. Essayer de lire le corps de la requête
+    try {
+        requestBody = await request.json();
+    } catch (error) {
+        const response = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
+        // Maintenant, nous pouvons journaliser cette erreur !
+        await logApiRequest(db, { error: "Invalid JSON body" }, response, 400, clientIp);
+        return NextResponse.json(response, { status: 400 });
+    }
+    
+    // 3. Valider les données
+    const validation = studentValidationSchema.safeParse(requestBody);
+    if (!validation.success) {
+        const response = { success: false, message: "Données de validation invalides.", errors: validation.error.flatten() };
+        await logApiRequest(db, requestBody, response, 400, clientIp);
+        return NextResponse.json(response, { status: 400 });
+    }
+    
+    // 4. Logique métier
     const { studentId, firstName, lastName } = validation.data;
 
     try {
@@ -145,6 +141,7 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error("Erreur serveur lors de la validation:", error);
         const response = { success: false, message: "Erreur interne du serveur." };
+        // S'assure de journaliser aussi les erreurs serveur inattendues
         await logApiRequest(db, requestBody, response, 500, clientIp);
         return NextResponse.json(response, { status: 500 });
     }
