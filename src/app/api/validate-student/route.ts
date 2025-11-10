@@ -51,7 +51,6 @@ export async function POST(request: NextRequest) {
         } catch (jsonError) {
             statusCode = 400;
             responsePayload = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
-            // Cannot log to firestore yet, db is not initialized.
             return NextResponse.json(responsePayload, { status: statusCode });
         }
         
@@ -77,6 +76,7 @@ export async function POST(request: NextRequest) {
             statusCode = 404;
             responsePayload = { success: false, message: "Aucun étudiant trouvé dans la base de données." };
             isSuccess = false;
+            // The finally block will handle logging
             return NextResponse.json(responsePayload, { status: statusCode });
         }
         
@@ -94,7 +94,7 @@ export async function POST(request: NextRequest) {
 
         // STEP 5: Compare data
         const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
-        const isLastNameMatch = studentData.lastName.toLowerCase() === lastName.toLowerCase();
+        const isLastNameMatch = studentData.lastName.toUpperCase() === lastName.toUpperCase();
         const isStudentActive = studentData.status === 'fully_paid' || studentData.status === 'partially_paid';
 
         if (!isFirstNameMatch || !isLastNameMatch) {
@@ -116,7 +116,14 @@ export async function POST(request: NextRequest) {
         responsePayload = {
             success: true,
             message: "La validité de l'étudiant a été confirmée.",
-            classId: studentData.classId
+            studentData: {
+                firstName: studentData.firstName,
+                lastName: studentData.lastName,
+                studentId: studentData.studentId,
+                level: studentData.level,
+                fieldOfStudy: studentData.fieldOfStudy,
+                classId: studentData.classId
+            }
         };
         isSuccess = true;
         return NextResponse.json(responsePayload, { status: statusCode });
