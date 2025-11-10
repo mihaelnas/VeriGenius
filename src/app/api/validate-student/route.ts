@@ -42,11 +42,20 @@ export async function POST(request: NextRequest) {
     let responsePayload: object = {};
     let statusCode: number = 500;
     let isSuccess = false;
-
-    const db = getFirebaseAdminApp().firestore();
+    let db: admin.firestore.Firestore | null = null;
 
     try {
-        // STEP 0: Parse request body
+        // STEP 0: Initialize Firebase Admin
+        try {
+            const app = getFirebaseAdminApp();
+            db = app.firestore();
+        } catch (initError: any) {
+            console.error("Erreur d'initialisation de Firebase Admin:", initError);
+            // We can't log to Firestore if it fails to init, so we just return
+            return NextResponse.json({ success: false, message: "Erreur interne du serveur lors de l'initialisation.", error: initError.message }, { status: 500 });
+        }
+        
+        // STEP 1: Parse request body
         try {
             requestBody = await request.json();
         } catch (jsonError) {
@@ -56,7 +65,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(responsePayload, { status: statusCode });
         }
         
-        // STEP 1: Validate incoming data
+        // STEP 2: Validate incoming data
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
             statusCode = 400;
@@ -67,7 +76,7 @@ export async function POST(request: NextRequest) {
 
         const { studentId, firstName, lastName } = validation.data;
 
-        // STEP 2: Query Firestore for the student
+        // STEP 3: Query Firestore for the student
         const studentQuery = db.collection('students').where('studentId', '==', studentId);
         const querySnapshot = await studentQuery.get();
 
@@ -82,7 +91,7 @@ export async function POST(request: NextRequest) {
         const studentDoc = querySnapshot.docs[0];
         const studentData = studentDoc.data();
 
-        // STEP 3: Compare data
+        // STEP 4: Compare data
         const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
         const isLastNameMatch = studentData.lastName.toLowerCase() === lastName.toLowerCase();
         const isStudentActive = studentData.status === 'fully_paid' || studentData.status === 'partially_paid';
@@ -119,14 +128,17 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(responsePayload, { status: statusCode });
     } finally {
         // This will always run, ensuring we log every request that reaches the API handler
-        const logEntry = {
-            timestamp: new Date().toISOString(),
-            requestBody,
-            responseBody: responsePayload,
-            statusCode,
-            isSuccess,
-            clientIp,
-        };
-        await logApiRequest(db, logEntry);
+        // Check if db was initialized before trying to log
+        if (db) {
+            const logEntry = {
+                timestamp: new Date().toISOString(),
+                requestBody,
+                responseBody: responsePayload,
+                statusCode,
+                isSuccess,
+                clientIp,
+            };
+            await logApiRequest(db, logEntry);
+        }
     }
 }
