@@ -113,7 +113,7 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
                 <FormItem>
                   <FormLabel>Matricule</FormLabel>
                   <FormControl>
-                    <Input placeholder="E20240101" {...field} />
+                    <Input placeholder="1814 H-F" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

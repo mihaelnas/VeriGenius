@@ -5,7 +5,7 @@ export const SupportedLevel = z.enum(["L1", "L2", "L3", "M1", "M2"]);
 
 // Schema for student data received in the API request
 export const studentValidationSchema = z.object({
-  studentId: z.string().min(1, 'Le matricule de l\'étudiant est requis'),
+  studentId: z.string().regex(/^\d{4} [A-Z]-[A-Z]$/, "Le format du matricule doit être '1234 A-B'."),
   firstName: z.string().min(1, 'Le prénom de l\'étudiant est requis'),
   lastName: z.string().min(1, 'Le nom de l\'étudiant est requis'),
   level: SupportedLevel,
