@@ -1,9 +1,11 @@
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { useUser, useAuth } from '@/firebase';
+import { useUser, useAuth, useFirestore, useCollection } from '@/firebase';
+import { collection, doc, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -14,9 +16,12 @@ import { StudentForm, StudentFormData } from '@/components/StudentForm';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
 import type { Student } from '@/lib/verigenius-types';
+import { useMemoFirebase } from '@/firebase/provider';
+
 
 // Helper function to capitalize the first letter of each word
 const capitalize = (str: string) => {
+    if (!str) return '';
     return str
         .split(' ')
         .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
@@ -24,14 +29,13 @@ const capitalize = (str: string) => {
 };
 
 export default function Home() {
-    const [students, setStudents] = useState<(Student & { id: string })[]>([]);
-    const [isLoadingData, setIsLoadingData] = useState(true);
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [selectedStudent, setSelectedStudent] = useState<(Student & { id: string }) | null>(null);
     const { toast } = useToast();
     const { user, isUserLoading } = useUser();
     const router = useRouter();
     const auth = useAuth();
+    const firestore = useFirestore();
 
     // Redirection si l'utilisateur n'est pas connecté
     useEffect(() => {
@@ -40,34 +44,27 @@ export default function Home() {
         }
     }, [user, isUserLoading, router]);
 
-    async function fetchStudents() {
-        if (!user) return;
-        setIsLoadingData(true);
-        try {
-            const response = await fetch('/api/students');
-            if (!response.ok) throw new Error('Failed to fetch students');
-            const data = await response.json();
-            setStudents(data);
-        } catch (error) {
+    const studentsCollection = useMemoFirebase(() => {
+        if (!firestore) return null;
+        return collection(firestore, 'students');
+    }, [firestore]);
+
+    const { data: students, isLoading: isLoadingData, error } = useCollection<Student>(studentsCollection);
+    
+    useEffect(() => {
+        if (error) {
             toast({
                 variant: "destructive",
                 title: "Erreur",
                 description: "Impossible de charger la liste des étudiants.",
             });
-        } finally {
-            setIsLoadingData(false);
+            console.error(error);
         }
-    }
+    }, [error, toast]);
 
-    useEffect(() => {
-        if (user) {
-            fetchStudents();
-        }
-    }, [user, toast]);
 
     const handleFormSubmit = async (data: StudentFormData) => {
-        const method = selectedStudent ? 'PUT' : 'POST';
-        const url = selectedStudent ? `/api/students/${selectedStudent.id}` : '/api/students';
+        if (!firestore) return;
 
         // Apply formatting before sending
         const formattedData = {
@@ -77,53 +74,51 @@ export default function Home() {
         };
 
         try {
-            const response = await fetch(url, {
-                method,
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formattedData),
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Une erreur est survenue.');
+             if (selectedStudent) {
+                // Update existing student
+                const studentDoc = doc(firestore, 'students', selectedStudent.id);
+                await updateDoc(studentDoc, formattedData);
+                toast({
+                    title: "Succès",
+                    description: "Étudiant mis à jour avec succès.",
+                });
+            } else {
+                // Add new student
+                const studentCollection = collection(firestore, 'students');
+                await addDoc(studentCollection, formattedData);
+                toast({
+                    title: "Succès",
+                    description: "Étudiant ajouté avec succès.",
+                });
             }
-
-            toast({
-                title: "Succès",
-                description: `Étudiant ${selectedStudent ? 'mis à jour' : 'ajouté'} avec succès.`,
-            });
             setIsFormOpen(false);
-            fetchStudents(); // Refresh the list
+            // Data will refresh automatically due to useCollection hook
         } catch (error: any) {
+            console.error("Error submitting form: ", error);
             toast({
                 variant: "destructive",
                 title: "Erreur",
-                description: error.message,
+                description: error.message || "Une erreur est survenue.",
             });
         }
     };
 
     const handleDeleteStudent = async (studentId: string) => {
+        if (!firestore) return;
         try {
-            const response = await fetch(`/api/students/${studentId}`, {
-                method: 'DELETE',
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Une erreur est survenue.');
-            }
-
+            const studentDoc = doc(firestore, 'students', studentId);
+            await deleteDoc(studentDoc);
             toast({
                 title: "Succès",
                 description: "Étudiant supprimé avec succès.",
             });
-            fetchStudents(); // Refresh the list
+            // Data will refresh automatically
         } catch (error: any) {
+            console.error("Error deleting student: ", error);
             toast({
                 variant: "destructive",
                 title: "Erreur",
-                description: error.message,
+                description: error.message || "Une erreur est survenue lors de la suppression.",
             });
         }
     };
@@ -237,12 +232,12 @@ export default function Home() {
                                             </div>
                                         </TableCell>
                                     </TableRow>
-                                ) : students.length === 0 ? (
+                                ) : students && students.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={6} className="text-center">Aucun étudiant trouvé.</TableCell>
                                     </TableRow>
                                 ) : (
-                                    students.map((student) => (
+                                    students && students.map((student) => (
                                         <TableRow key={student.id}>
                                             <TableCell>{`${student.firstName} ${student.lastName}`}</TableCell>
                                             <TableCell>{student.studentId}</TableCell>
@@ -313,3 +308,5 @@ export default function Home() {
         </div>
     );
 }
+
+    
