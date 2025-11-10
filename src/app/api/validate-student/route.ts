@@ -15,42 +15,55 @@ const firebaseConfig: FirebaseOptions = {
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// --- Initialisation du SDK Admin ---
+// --- Fonctions d'initialisation ---
 function initializeAdminApp() {
-    // Prevent re-initialization
-    if (admin.apps.find(app => app?.name === 'admin-app-for-logging')) {
-        return admin.app('admin-app-for-logging');
+    const appName = 'admin-app-for-logging';
+    if (admin.apps.find(app => app?.name === appName)) {
+        return admin.app(appName);
     }
     
     if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
-        throw new Error("Firebase Admin SDK environment variables are not set for logging.");
+        console.error("Firebase Admin SDK environment variables are not set for logging.");
+        return null;
     }
     
-    return admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId: process.env.FIREBASE_PROJECT_ID,
-            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-            privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-        }),
-    }, 'admin-app-for-logging');
+    try {
+        return admin.initializeApp({
+            credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+            }),
+        }, appName);
+    } catch (error) {
+        console.error("Failed to initialize Firebase Admin App:", error);
+        return null;
+    }
 }
 
-// --- Initialisation du SDK Client ---
 function initializeClientApp() {
     const appName = 'client-app-for-reading';
     if (getApps().some(app => app.name === appName)) {
         return getApp(appName);
     }
-    return initializeApp(firebaseConfig, appName);
+    try {
+        return initializeApp(firebaseConfig, appName);
+    } catch (error) {
+        console.error("Failed to initialize Firebase Client App:", error);
+        return null;
+    }
 }
 
 // --- Fonction de Journalisation ---
-async function writeLog(adminApp: admin.app.App, logData: any) {
+async function writeLog(adminApp: admin.app.App | null, logData: any) {
+    if (!adminApp) {
+        console.error("Admin app not initialized. Cannot write log.");
+        return;
+    }
     try {
         await adminApp.firestore().collection('request-logs').add(logData);
     } catch (logError) {
         console.error("CRITICAL: Failed to write log to Firestore:", logError);
-        // We don't re-throw, as failing to log shouldn't fail the main request
     }
 }
 
@@ -63,11 +76,14 @@ export async function POST(request: NextRequest) {
     let isSuccess = false;
     const timestamp = new Date().toISOString();
 
-    const clientApp = initializeClientApp();
     const adminApp = initializeAdminApp();
+    const clientApp = initializeClientApp();
+
+    if (!clientApp) {
+         return NextResponse.json({ success: false, message: "Internal Server Error: Client Firebase App failed to initialize." }, { status: 500 });
+    }
 
     try {
-        // 1. Validation de la requête
         try {
             requestBody = await request.json();
         } catch (jsonError) {
@@ -86,7 +102,7 @@ export async function POST(request: NextRequest) {
         }
         const { studentId, firstName, lastName } = validation.data;
 
-        // 2. Requête Firestore avec le SDK CLIENT (pour la lecture)
+        // Requête Firestore avec le SDK CLIENT
         const clientDb = getClientFirestore(clientApp);
         const studentsRef = collection(clientDb, "students");
         const q = query(studentsRef, where("studentId", "==", studentId));
@@ -101,7 +117,6 @@ export async function POST(request: NextRequest) {
         const studentDoc = querySnapshot.docs[0];
         const studentData = studentDoc.data() as Student;
 
-        // 3. Logique de comparaison
         const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
         const isLastNameMatch = studentData.lastName.toUpperCase() === lastName.toUpperCase();
 
@@ -119,7 +134,6 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(responsePayload, { status: statusCode });
         }
         
-        // 4. Succès
         statusCode = 200;
         isSuccess = true;
         responsePayload = {
@@ -142,6 +156,7 @@ export async function POST(request: NextRequest) {
         console.error("Internal API Error:", error);
         statusCode = 500;
         responsePayload = { success: false, message: "Internal server error.", error: error.message };
+        // Tenter de journaliser même en cas d'erreur interne
         await writeLog(adminApp, { timestamp, requestBody: requestBody || {}, responseBody: responsePayload, statusCode, isSuccess, clientIp });
         return NextResponse.json(responsePayload, { status: statusCode });
     }
