@@ -1,14 +1,11 @@
 
 import admin from 'firebase-admin';
-
-// Charger les variables d'environnement depuis le fichier .env
 import 'dotenv/config';
 
 // Assurez-vous que les variables d'environnement sont chargées
-// Dans Next.js, cela est souvent géré automatiquement via .env.local
-const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
-if (!serviceAccount) {
+if (!serviceAccountJson) {
     throw new Error('La variable d\'environnement FIREBASE_SERVICE_ACCOUNT_JSON doit être définie.');
 }
 
@@ -17,8 +14,9 @@ let adminApp: admin.app.App;
 export function initializeAdminApp() {
     if (admin.apps.length === 0) {
         try {
+            const serviceAccount = JSON.parse(serviceAccountJson);
             adminApp = admin.initializeApp({
-                credential: admin.credential.cert(JSON.parse(serviceAccount)),
+                credential: admin.credential.cert(serviceAccount),
             });
         } catch (error: any) {
             console.error("Erreur d'initialisation de Firebase Admin:", error);

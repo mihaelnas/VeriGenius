@@ -13,10 +13,10 @@ const capitalize = (str: string) => {
 };
 
 export async function POST(request: Request) {
-  await initializeAdminApp();
-  const db = getFirestore();
-
   try {
+    initializeAdminApp();
+    const db = getFirestore();
+
     const body = await request.json();
     const validationResult = studentValidationSchema.safeParse(body);
 
