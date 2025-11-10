@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { studentValidationSchema } from '@/lib/verigenius-types';
 import admin from 'firebase-admin';
 
-// Helper to prevent re-initialization
+// Helper to prevent re-initialization in some environments
 function getFirebaseAdminApp() {
     if (admin.apps.length > 0) {
         return admin.app();
@@ -11,6 +11,7 @@ function getFirebaseAdminApp() {
 
     const projectId = process.env.FIREBASE_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    // Vercel automatically handles the newlines, but we replace \\n just in case
     const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
     if (!projectId || !clientEmail || !privateKey) {
@@ -31,7 +32,6 @@ async function logApiRequest(db: admin.firestore.Firestore, logEntry: object) {
     try {
         await db.collection('request-logs').add(logEntry);
     } catch (logError) {
-        // This will be visible in Vercel logs if logging itself fails
         console.error("Échec de la journalisation de la requête API:", logError);
     }
 }
@@ -45,23 +45,13 @@ export async function POST(request: NextRequest) {
     let db: admin.firestore.Firestore | null = null;
 
     try {
-        // STEP 0: Initialize Firebase Admin
-        try {
-            const app = getFirebaseAdminApp();
-            db = app.firestore();
-        } catch (initError: any) {
-            console.error("Erreur d'initialisation de Firebase Admin:", initError);
-            // We can't log to Firestore if it fails to init, so we just return
-            return NextResponse.json({ success: false, message: "Erreur interne du serveur lors de l'initialisation.", error: initError.message }, { status: 500 });
-        }
-        
         // STEP 1: Parse request body
         try {
             requestBody = await request.json();
         } catch (jsonError) {
             statusCode = 400;
             responsePayload = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
-            isSuccess = false;
+            // Cannot log to firestore yet, db is not initialized.
             return NextResponse.json(responsePayload, { status: statusCode });
         }
         
@@ -70,28 +60,39 @@ export async function POST(request: NextRequest) {
         if (!validation.success) {
             statusCode = 400;
             responsePayload = { success: false, message: "Données de validation invalides.", errors: validation.error.flatten() };
-            isSuccess = false;
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
         const { studentId, firstName, lastName } = validation.data;
 
-        // STEP 3: Query Firestore for the student
-        const studentQuery = db.collection('students').where('studentId', '==', studentId);
-        const querySnapshot = await studentQuery.get();
+        // STEP 3: Initialize Firebase Admin and get DB
+        const app = getFirebaseAdminApp();
+        db = app.firestore();
 
-        if (querySnapshot.empty) {
+        // STEP 4: Query Firestore for the student
+        // WORKAROUND: Instead of 'where', fetch the entire collection and filter in-memory.
+        const studentsCollection = await db.collection('students').get();
+
+        if (studentsCollection.empty) {
+            statusCode = 404;
+            responsePayload = { success: false, message: "Aucun étudiant trouvé dans la base de données." };
+            isSuccess = false;
+            return NextResponse.json(responsePayload, { status: statusCode });
+        }
+        
+        // Find the student document in the results
+        const studentDoc = studentsCollection.docs.find(doc => doc.data().studentId === studentId);
+
+        if (!studentDoc) {
             statusCode = 404;
             responsePayload = { success: false, message: "Étudiant non trouvé." };
             isSuccess = false;
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
-        // Assume studentId is unique, so we take the first result
-        const studentDoc = querySnapshot.docs[0];
         const studentData = studentDoc.data();
 
-        // STEP 4: Compare data
+        // STEP 5: Compare data
         const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
         const isLastNameMatch = studentData.lastName.toLowerCase() === lastName.toLowerCase();
         const isStudentActive = studentData.status === 'fully_paid' || studentData.status === 'partially_paid';
@@ -127,8 +128,6 @@ export async function POST(request: NextRequest) {
         isSuccess = false;
         return NextResponse.json(responsePayload, { status: statusCode });
     } finally {
-        // This will always run, ensuring we log every request that reaches the API handler
-        // Check if db was initialized before trying to log
         if (db) {
             const logEntry = {
                 timestamp: new Date().toISOString(),
@@ -138,7 +137,8 @@ export async function POST(request: NextRequest) {
                 isSuccess,
                 clientIp,
             };
-            await logApiRequest(db, logEntry);
+            // Do not await, let it run in the background
+            logApiRequest(db, logEntry);
         }
     }
 }
