@@ -1,97 +1,123 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { studentValidationSchema, type Student } from '@/lib/verigenius-types';
-import { initializeApp, getApps, getApp, deleteApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
-import { firebaseConfig } from '@/firebase/config';
+import { initializeApp, getApps, getApp, deleteApp, FirebaseOptions } from 'firebase/app';
+import { getFirestore as getClientFirestore, collection, query, where, getDocs } from 'firebase/firestore';
+import * as admin from 'firebase-admin';
 
-// Helper to initialize Firebase App on the server, specific for this route
-function getFirebaseApp() {
-    // Use a unique name to avoid conflicts
-    const appName = `api-validate-student-${Date.now()}`;
+// --- Configuration Firebase ---
+const firebaseConfig: FirebaseOptions = {
+    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
+};
+
+// --- Initialisation du SDK Admin ---
+// Pour l'écriture sécurisée des logs
+function initializeAdminApp() {
+    const appName = `firebase-admin-app:${Date.now()}`;
+    if (admin.apps.some(app => app?.name === appName)) {
+        return admin.app(appName);
+    }
+    
+    // Vérification que les variables d'environnement sont bien présentes
+    if (!process.env.FIREBASE_PROJECT_ID || !process.env.FIREBASE_CLIENT_EMAIL || !process.env.FIREBASE_PRIVATE_KEY) {
+        throw new Error("Firebase Admin SDK environment variables are not set.");
+    }
+    
+    return admin.initializeApp({
+        credential: admin.credential.cert({
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+        }),
+    }, appName);
+}
+
+
+// --- Initialisation du SDK Client ---
+// Pour la lecture des données étudiant
+function initializeClientApp() {
+    const appName = `firebase-client-app:${Date.now()}`;
     if (getApps().some(app => app.name === appName)) {
         return getApp(appName);
     }
     return initializeApp(firebaseConfig, appName);
 }
 
+// --- Logique de l'API ---
 export async function POST(request: NextRequest) {
     let requestBody: any;
     const clientIp = request.ip || request.headers.get('x-forwarded-for') || 'inconnu';
     let responsePayload: object = {};
     let statusCode: number = 500;
     let isSuccess = false;
-    let logMessage = "An unexpected error occurred.";
 
     const timestamp = new Date().toISOString();
-    const app = getFirebaseApp();
-    const db = getFirestore(app);
 
+    const clientApp = initializeClientApp();
+    const clientDb = getClientFirestore(clientApp);
+    
+    let adminApp: admin.app.App | null = null;
     try {
-        // STEP 1: Parse and Validate Request Body
+        adminApp = initializeAdminApp();
+        const adminDb = adminApp.firestore();
+
+        // 1. Validation de la requête
         try {
             requestBody = await request.json();
         } catch (jsonError) {
             statusCode = 400;
-            logMessage = "Invalid JSON body.";
-            responsePayload = { success: false, message: logMessage };
+            responsePayload = { success: false, message: "Invalid JSON body." };
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
             statusCode = 400;
-            logMessage = "Invalid validation data.";
-            responsePayload = { success: false, message: logMessage, errors: validation.error.flatten() };
+            responsePayload = { success: false, message: "Invalid validation data.", errors: validation.error.flatten() };
             return NextResponse.json(responsePayload, { status: statusCode });
         }
-
         const { studentId, firstName, lastName } = validation.data;
 
-        // STEP 2: Query Firestore using the client SDK
-        const studentsRef = collection(db, "students");
-        const studentQuery = query(studentsRef, where("studentId", "==", studentId));
-        const querySnapshot = await getDocs(studentQuery);
+        // 2. Requête Firestore avec le SDK CLIENT (pour la lecture)
+        const studentsRef = collection(clientDb, "students");
+        const q = query(studentsRef, where("studentId", "==", studentId));
+        const querySnapshot = await getDocs(q);
 
         if (querySnapshot.empty) {
             statusCode = 404;
-            isSuccess = false;
-            logMessage = `Validation failed: Student with matricule '${studentId}' not found.`;
-            responsePayload = { success: isSuccess, message: logMessage };
+            responsePayload = { success: false, message: `Validation failed: Student with matricule '${studentId}' not found.` };
             return NextResponse.json(responsePayload, { status: statusCode });
         }
-
         const studentDoc = querySnapshot.docs[0];
         const studentData = studentDoc.data() as Student;
 
-        // STEP 3: Compare names (case-insensitive for first name, case-sensitive for last name)
+        // 3. Logique de comparaison
         const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
-        const isLastNameMatch = studentData.lastName === lastName.toUpperCase();
+        const isLastNameMatch = studentData.lastName.toUpperCase() === lastName.toUpperCase();
 
         if (!isFirstNameMatch || !isLastNameMatch) {
             statusCode = 401;
-            isSuccess = false;
-            logMessage = "Validation failed: First name or last name does not match.";
-            responsePayload = { success: isSuccess, message: logMessage };
-            return NextResponse.json(responsePayload, { status: statusCode });
-        }
-        
-        // STEP 4: Check student status
-        if (studentData.status === 'inactive') {
-            statusCode = 403;
-            isSuccess = false;
-            logMessage = "Validation failed: Student account is inactive.";
-            responsePayload = { success: isSuccess, message: logMessage };
+            responsePayload = { success: false, message: "Validation failed: First name or last name does not match." };
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
-        // STEP 5: Success
+        if (studentData.status === 'inactive') {
+            statusCode = 403;
+            responsePayload = { success: false, message: "Validation failed: Student account is inactive." };
+            return NextResponse.json(responsePayload, { status: statusCode });
+        }
+        
+        // 4. Succès
         statusCode = 200;
         isSuccess = true;
-        logMessage = "Validation successful.";
         responsePayload = {
-            success: isSuccess,
-            message: logMessage,
+            success: true,
+            message: "Validation successful.",
             student: {
                 firstName: studentData.firstName,
                 lastName: studentData.lastName,
@@ -107,34 +133,28 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error("Internal API Error:", error);
         statusCode = 500;
-        isSuccess = false;
-        logMessage = "Internal server error during API execution.";
-        responsePayload = { success: false, message: logMessage, error: error.message };
-        
-        // This will now only be hit for unexpected errors, not for validation failures
+        responsePayload = { success: false, message: "Internal server error.", error: error.message };
         return NextResponse.json(responsePayload, { status: statusCode });
 
     } finally {
-        // Log the final outcome
-        try {
-            const logEntry = {
-                timestamp,
-                requestBody,
-                responseBody: responsePayload,
-                statusCode,
-                isSuccess,
-                clientIp,
-            };
-            // Note: We're not using admin SDK here, so direct log writing isn't straightforward
-            // In a real scenario, you'd send this to a separate logging service or a different Firebase function.
-            // For now, we console.log it on the server.
-            console.log("API Request Log:", JSON.stringify(logEntry, null, 2));
-
-        } catch (logError) {
-            console.error("Failed to log API request:", logError);
+        // 5. Journalisation avec le SDK ADMIN (pour l'écriture)
+        if (adminApp) {
+             try {
+                await adminApp.firestore().collection('request-logs').add({
+                    timestamp,
+                    requestBody: requestBody || {},
+                    responseBody: responsePayload,
+                    statusCode,
+                    isSuccess,
+                    clientIp,
+                });
+             } catch (logError) {
+                console.error("Failed to write to log:", logError);
+             }
+             // Nettoyage de l'app admin
+             await adminApp.delete();
         }
-        
-        // Clean up the temporary Firebase app instance
-        await deleteApp(app);
+        // Nettoyage de l'app client
+        await deleteApp(clientApp);
     }
 }
