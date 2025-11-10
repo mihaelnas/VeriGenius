@@ -1,6 +1,9 @@
 
 import admin from 'firebase-admin';
 
+// Charger les variables d'environnement depuis le fichier .env
+import 'dotenv/config';
+
 // Assurez-vous que les variables d'environnement sont chargées
 // Dans Next.js, cela est souvent géré automatiquement via .env.local
 const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
