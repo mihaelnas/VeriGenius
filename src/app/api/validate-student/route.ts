@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import admin from 'firebase-admin';
 import { z } from 'zod';
+import 'dotenv/config';
 
 // --- Début de l'Initialisation de Firebase Admin ---
 
