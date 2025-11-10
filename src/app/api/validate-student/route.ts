@@ -35,9 +35,7 @@ export async function POST(request: NextRequest) {
     let statusCode: number = 500;
 
     try {
-        const adminApp = getFirebaseAdminApp();
-        const db = adminApp.firestore();
-
+        // STEP 0: Parse request body
         try {
             requestBody = await request.json();
         } catch (jsonError) {
@@ -46,6 +44,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(responsePayload, { status: statusCode });
         }
         
+        // STEP 1: Validate incoming data (already confirmed working)
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
             statusCode = 400;
@@ -53,40 +52,32 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
-        const { studentId, firstName, lastName } = validation.data;
+        // STEP 2: Initialize Firebase Admin SDK (already confirmed working)
+        const adminApp = getFirebaseAdminApp();
+        const db = adminApp.firestore();
         
-        const studentsRef = db.collection('students');
-        const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
-
-        if (snapshot.empty) {
-            statusCode = 404;
-            responsePayload = { success: false, message: "Aucun étudiant trouvé avec ce matricule." };
-            return NextResponse.json(responsePayload, { status: statusCode });
+        // STEP 3.1: Try to WRITE to firestore (logging) but do not read student data
+        statusCode = 200;
+        responsePayload = { success: true, message: "DEBUG Step 3.1: Firestore write (logging) attempted." };
+        
+        // We will attempt to log, but not await it to not slow down the debug response
+        try {
+            const logEntry = {
+                timestamp: new Date().toISOString(),
+                requestBody,
+                responseBody: responsePayload,
+                statusCode,
+                isSuccess: true,
+                clientIp,
+                debugStep: "3.1"
+            };
+            db.collection('request-logs').add(logEntry);
+        } catch (logError: any) {
+            // If logging fails, we modify the response to indicate that.
+            responsePayload = { success: false, message: "DEBUG Step 3.1: Firestore write (logging) FAILED.", error: logError.message };
+            statusCode = 500;
         }
 
-        const studentDoc = snapshot.docs[0];
-        const studentData = studentDoc.data();
-
-        const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
-        const isLastNameMatch = studentData.lastName.toLowerCase() === lastName.toLowerCase();
-
-        if (isFirstNameMatch && isLastNameMatch) {
-             if (studentData.status === 'inactive') {
-                statusCode = 403;
-                responsePayload = { success: false, message: "Le compte de l'étudiant est inactif." };
-            } else {
-                statusCode = 200;
-                responsePayload = {
-                    success: true,
-                    message: "La validité de l'étudiant a été confirmée.",
-                    classId: studentData.classId
-                };
-            }
-        } else {
-            statusCode = 403;
-            responsePayload = { success: false, message: "Le nom ou le prénom ne correspond pas au matricule." };
-        }
-        
         return NextResponse.json(responsePayload, { status: statusCode });
 
     } catch (error: any) {
@@ -94,21 +85,5 @@ export async function POST(request: NextRequest) {
         statusCode = 500;
         responsePayload = { success: false, message: "Erreur interne du serveur.", error: error.message };
         return NextResponse.json(responsePayload, { status: statusCode });
-    } finally {
-        // Log the request regardless of outcome
-        try {
-            const logEntry = {
-                timestamp: new Date().toISOString(),
-                requestBody,
-                responseBody: responsePayload,
-                statusCode,
-                isSuccess: statusCode >= 200 && statusCode < 300,
-                clientIp,
-            };
-            // We don't await this to avoid slowing down the response
-            getFirebaseAdminApp().firestore().collection('request-logs').add(logEntry);
-        } catch (logError) {
-            console.error("Échec de la journalisation de la requête API:", logError);
-        }
     }
 }
