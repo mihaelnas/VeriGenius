@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getFirestore } from 'firebase-admin/firestore';
-import { initializeAdminApp } from '@/firebase/server';
+import { adminDb } from '@/firebase/server';
 import { studentValidationSchema } from '@/lib/verigenius-types';
 
 // Helper function to capitalize the first letter of each word
@@ -14,9 +13,6 @@ const capitalize = (str: string) => {
 
 export async function POST(request: Request) {
   try {
-    initializeAdminApp();
-    const db = getFirestore();
-
     const body = await request.json();
     const validationResult = studentValidationSchema.safeParse(body);
 
@@ -26,7 +22,7 @@ export async function POST(request: Request) {
 
     const { studentId, firstName, lastName } = validationResult.data;
 
-    const studentsRef = db.collection('students');
+    const studentsRef = adminDb.collection('students');
     const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
 
     if (snapshot.empty) {
