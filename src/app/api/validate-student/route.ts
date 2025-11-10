@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { studentValidationSchema } from '@/lib/verigenius-types';
 import admin from 'firebase-admin';
+import { z } from 'zod';
 
 // Helper to prevent re-initialization in some environments
 function getFirebaseAdminApp() {
@@ -11,11 +12,9 @@ function getFirebaseAdminApp() {
 
     const projectId = process.env.FIREBASE_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    // Vercel automatically handles the newlines, but we replace \\n just in case
     const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
     if (!projectId || !clientEmail || !privateKey) {
-        // This error should now be caught and logged properly
         throw new Error("Les variables d'environnement Firebase ne sont pas toutes définies.");
     }
 
@@ -28,24 +27,17 @@ function getFirebaseAdminApp() {
     });
 }
 
-// Helper for logging
-async function logApiRequest(db: admin.firestore.Firestore, logEntry: object) {
-    try {
-        await db.collection('request-logs').add(logEntry);
-    } catch (logError) {
-        console.error("Échec de la journalisation de la requête API:", logError);
-    }
-}
-
 export async function POST(request: NextRequest) {
-    let requestBody: any = {};
+    let requestBody: any;
     const clientIp = request.ip || request.headers.get('x-forwarded-for') || 'inconnu';
     let responsePayload: object = {};
     let statusCode: number = 500;
     let isSuccess = false;
 
+    const timestamp = new Date().toISOString();
+
     try {
-        // STEP 1: Parse request body
+        // STEP 1: Parse and Validate Request Body
         try {
             requestBody = await request.json();
         } catch (jsonError) {
@@ -53,8 +45,7 @@ export async function POST(request: NextRequest) {
             responsePayload = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
             return NextResponse.json(responsePayload, { status: statusCode });
         }
-        
-        // STEP 2: Validate incoming data
+
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
             statusCode = 400;
@@ -62,18 +53,46 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
-        // DEBUG STEP 1 SUCCESS
+        const { studentId, firstName, lastName } = validation.data;
+        
+        // STEP 2: Initialize Firebase Admin
+        const adminApp = getFirebaseAdminApp();
+        const db = admin.firestore(adminApp);
+        
+        // STEP 3.2a: Attempt a minimal read on the 'students' collection
+        const studentsRef = db.collection('students');
+        await studentsRef.limit(1).get();
+
+
+        // If we reach here, the minimal read was successful
         statusCode = 200;
         isSuccess = true;
-        responsePayload = { success: true, message: "DEBUG Step 1: Validation successful. No Firebase interaction." };
+        responsePayload = { success: true, message: "DEBUG Step 3.2a: Simple read on 'students' collection attempted." };
         return NextResponse.json(responsePayload, { status: statusCode });
 
     } catch (error: any) {
-        console.error("Erreur interne majeure dans l'API:", error);
+        console.error("Erreur interne dans l'API:", error);
         statusCode = 500;
         responsePayload = { success: false, message: "Erreur interne du serveur.", error: error.message };
         isSuccess = false;
-        // The finally block will not run in this simple version, returning directly.
+
+        // Attempt to log the failure if possible
+        try {
+            const db = admin.app().firestore();
+            const logEntry = {
+                timestamp,
+                requestBody,
+                responseBody: responsePayload,
+                statusCode,
+                isSuccess,
+                clientIp,
+                error: error.message || 'Unknown error during execution',
+            };
+            await db.collection('request-logs').add(logEntry);
+        } catch (logError) {
+            console.error("Échec de la journalisation de l'erreur:", logError);
+        }
+        
         return NextResponse.json(responsePayload, { status: statusCode });
     }
 }
