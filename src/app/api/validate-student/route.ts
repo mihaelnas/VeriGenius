@@ -1,6 +1,69 @@
+
 import { NextResponse } from 'next/server';
-import { adminDb } from '@/firebase/server';
-import { studentValidationSchema } from '@/lib/verigenius-types';
+import admin from 'firebase-admin';
+import { z } from 'zod';
+
+// --- Début de l'Initialisation de Firebase Admin ---
+
+// Schéma de validation pour la clé de compte de service
+const serviceAccountSchema = z.object({
+  type: z.string(),
+  project_id: z.string(),
+  private_key_id: z.string(),
+  private_key: z.string(),
+  client_email: z.string(),
+  client_id: z.string(),
+  auth_uri: z.string(),
+  token_uri: z.string(),
+  auth_provider_x509_cert_url: z.string(),
+  client_x509_cert_url: z.string(),
+});
+
+// Fonction pour initialiser l'application admin en toute sécurité
+function initializeAdminApp() {
+    // Évite la réinitialisation en développement
+    if (admin.apps.length > 0) {
+        return admin.app();
+    }
+
+    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+
+    if (!serviceAccountJson) {
+        throw new Error('La variable d\'environnement FIREBASE_SERVICE_ACCOUNT_JSON doit être définie dans le fichier .env.');
+    }
+
+    try {
+        const serviceAccount = JSON.parse(serviceAccountJson);
+        // Valider le JSON avec Zod
+        serviceAccountSchema.parse(serviceAccount);
+        
+        return admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+        });
+    } catch (error: any) {
+        if (error instanceof z.ZodError) {
+             console.error("Erreur de validation du JSON du compte de service:", error.flatten());
+             throw new Error("Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.");
+        }
+        console.error("Erreur d'initialisation de Firebase Admin:", error.message);
+        throw new Error("Impossible d'initialiser le SDK Firebase Admin. Vérifiez le contenu du fichier .env.");
+    }
+}
+
+// Initialisez l'application et obtenez la base de données
+const adminApp = initializeAdminApp();
+const adminDb = admin.firestore();
+
+// --- Fin de l'Initialisation ---
+
+
+// Schéma de validation pour la requête POST
+const studentValidationSchema = z.object({
+  studentId: z.string().regex(/^\d{4} [A-Z]-[A-Z]$/, "Le format du matricule doit être '1234 A-B'."),
+  firstName: z.string().min(1, 'Le prénom de l\'étudiant est requis'),
+  lastName: z.string().min(1, 'Le nom de l\'étudiant est requis'),
+});
+
 
 // Helper function to capitalize the first letter of each word
 const capitalize = (str: string) => {
