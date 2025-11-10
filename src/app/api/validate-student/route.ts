@@ -5,23 +5,16 @@ import admin from 'firebase-admin';
 import { studentValidationSchema } from '@/lib/verigenius-types';
 import type { Student } from '@/lib/verigenius-types';
 
-// Schéma de validation pour le compte de service Firebase
-const serviceAccountSchema = z.object({
-  type: z.string(),
-  project_id: z.string(),
-  private_key_id: z.string(),
-  private_key: z.string(),
-  client_email: z.string().email(),
-  client_id: z.string(),
-  auth_uri: z.string().url(),
-  token_uri: z.string().url(),
-  auth_provider_x509_cert_url: z.string().url(),
-  client_x509_cert_url: z.string().url(),
-  universe_domain: z.string().optional(),
+// Schéma de validation pour les variables d'environnement
+const envSchema = z.object({
+  FIREBASE_PROJECT_ID: z.string().min(1, "La variable d'environnement FIREBASE_PROJECT_ID est requise."),
+  FIREBASE_CLIENT_EMAIL: z.string().email("La variable d'environnement FIREBASE_CLIENT_EMAIL est invalide."),
+  FIREBASE_PRIVATE_KEY: z.string().min(1, "La variable d'environnement FIREBASE_PRIVATE_KEY est requise."),
 });
 
 /**
  * Initialise l'application Firebase Admin si elle ne l'est pas déjà.
+ * Utilise des variables d'environnement distinctes pour plus de fiabilité sur Vercel.
  * @returns {admin.firestore.Firestore} L'instance de la base de données Firestore.
  */
 function initializeAdminApp() {
@@ -29,22 +22,23 @@ function initializeAdminApp() {
     return admin.firestore();
   }
 
-  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
-  if (!serviceAccountJson) {
-    console.error("CRITICAL: La variable d'environnement FIREBASE_SERVICE_ACCOUNT_JSON n'est pas définie.");
-    throw new Error("Configuration du serveur incomplète.");
+  const envValidation = envSchema.safeParse(process.env);
+
+  if (!envValidation.success) {
+    console.error("CRITICAL: Variables d'environnement Firebase manquantes ou invalides.", envValidation.error.flatten());
+    throw new Error("Configuration du serveur incomplète. Assurez-vous que FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, et FIREBASE_PRIVATE_KEY sont définies.");
   }
+  
+  const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = envValidation.data;
 
   try {
-    const serviceAccount = JSON.parse(serviceAccountJson);
-    const validation = serviceAccountSchema.safeParse(serviceAccount);
-    if (!validation.success) {
-      console.error("CRITICAL: Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.", validation.error.flatten());
-      throw new Error("Configuration du service account invalide.");
-    }
-
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+      credential: admin.credential.cert({
+        projectId: FIREBASE_PROJECT_ID,
+        clientEmail: FIREBASE_CLIENT_EMAIL,
+        // Remplace les séquences d'échappement \n par de vrais sauts de ligne
+        privateKey: FIREbase_PRIVATE_KEY.replace(/\\n/g, '\n'),
+      }),
     });
     console.log('Firebase Admin SDK initialisé avec succès.');
     return admin.firestore();
@@ -55,31 +49,35 @@ function initializeAdminApp() {
 }
 
 // Fonction de journalisation séparée
-async function logApiRequest(db: admin.firestore.Firestore | null, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
-    // Temporairement désactivé pour le test
-    // if (!db) return; 
-    // try {
-    //     const logEntry = {
-    //         timestamp: new Date().toISOString(),
-    //         requestBody,
-    //         responseBody,
-    //         statusCode,
-    //         isSuccess: statusCode === 200,
-    //         clientIp: clientIp || 'Unknown',
-    //     };
-    //     await db.collection('request-logs').add(logEntry);
-    // } catch (error) {
-    //     console.error("Erreur lors de la journalisation de la requête API:", error);
-    // }
+async function logApiRequest(db: admin.firestore.Firestore, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
+    try {
+        const logEntry = {
+            timestamp: new Date().toISOString(),
+            requestBody,
+            responseBody,
+            statusCode,
+            isSuccess: statusCode === 200,
+            clientIp: clientIp || 'Unknown',
+        };
+        await db.collection('request-logs').add(logEntry);
+    } catch (error) {
+        console.error("Erreur lors de la journalisation de la requête API:", error);
+    }
 }
-
 
 export async function POST(request: NextRequest) {
     const clientIp = request.ip;
+    let db: admin.firestore.Firestore;
     let requestBody: any;
-    
-    // On n'initialise pas la DB pour ce test pour isoler la logique de comparaison
-    const db = null; 
+
+    try {
+        db = initializeAdminApp();
+    } catch (error: any) {
+        console.error("Erreur fatale lors de l'initialisation de la DB:", error);
+        // Impossible de journaliser ici car la DB n'a pas pu être initialisée
+        const errorResponse = { success: false, message: "Erreur de configuration interne du serveur." };
+        return NextResponse.json(errorResponse, { status: 500 });
+    }
 
     try {
         requestBody = await request.json();
@@ -99,38 +97,32 @@ export async function POST(request: NextRequest) {
     const { studentId, firstName, lastName } = validation.data;
 
     try {
-        // --- DÉBUT DE LA SIMULATION ---
-        // On crée un "faux" étudiant qui correspond à la requête de test
-        const fakeStudentFromDB: Student = {
-            id: 'fake-id',
-            studentId: "1814 H-F",
-            firstName: "Irinah",
-            lastName: "RAOEL",
-            level: 'L3',
-            fieldOfStudy: 'IG',
-            status: 'fully_paid',
-            classId: 'L3-IG-G1'
-        };
+        const studentsRef = db.collection('students');
+        const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
 
-        const isFirstNameMatch = fakeStudentFromDB.firstName.toLowerCase() === firstName.toLowerCase();
-        const isLastNameMatch = fakeStudentFromDB.lastName.toLowerCase() === lastName.toLowerCase();
-        
-        // On ajoute des logs pour voir ce qui est comparé
-        console.log(`Comparaison Prénom: DB='${fakeStudentFromDB.firstName.toLowerCase()}' vs REQUETE='${firstName.toLowerCase()}' -> ${isFirstNameMatch}`);
-        console.log(`Comparaison Nom: DB='${fakeStudentFromDB.lastName.toLowerCase()}' vs REQUETE='${lastName.toLowerCase()}' -> ${isLastNameMatch}`);
+        if (snapshot.empty) {
+            const response = { success: false, message: "Aucun étudiant trouvé avec ce matricule." };
+            await logApiRequest(db, requestBody, response, 404, clientIp);
+            return NextResponse.json(response, { status: 404 });
+        }
 
+        const studentDoc = snapshot.docs[0];
+        const studentFromDB = { id: studentDoc.id, ...studentDoc.data() } as Student;
+
+        const isFirstNameMatch = studentFromDB.firstName.toLowerCase() === firstName.toLowerCase();
+        const isLastNameMatch = studentFromDB.lastName.toLowerCase() === lastName.toLowerCase();
 
         if (!isFirstNameMatch || !isLastNameMatch) {
-            const response = { success: false, message: "DEBUG (SIMULATION): Le nom ou le prénom ne correspond pas." };
+            const response = { success: false, message: "Le nom ou le prénom ne correspond pas." };
             await logApiRequest(db, requestBody, response, 403, clientIp);
             return NextResponse.json(response, { status: 403 });
         }
         
-        if (fakeStudentFromDB.status !== 'fully_paid' && fakeStudentFromDB.status !== 'partially_paid') {
+        if (studentFromDB.status !== 'fully_paid' && studentFromDB.status !== 'partially_paid') {
             const response = { 
                 success: false, 
-                message: "DEBUG (SIMULATION): Le statut de paiement de l'étudiant ne permet pas la validation.",
-                status: fakeStudentFromDB.status
+                message: "Le statut de paiement de l'étudiant ne permet pas la validation.",
+                status: studentFromDB.status
             };
             await logApiRequest(db, requestBody, response, 403, clientIp);
             return NextResponse.json(response, { status: 403 });
@@ -138,25 +130,24 @@ export async function POST(request: NextRequest) {
 
         const successResponse = {
             success: true,
-            message: "DEBUG (SIMULATION): La validité de l'étudiant a été confirmée.",
+            message: "La validité de l'étudiant a été confirmée.",
             student: {
-                studentId: fakeStudentFromDB.studentId,
-                firstName: fakeStudentFromDB.firstName,
-                lastName: fakeStudentFromDB.lastName,
-                level: fakeStudentFromDB.level,
-                fieldOfStudy: fakeStudentFromDB.fieldOfStudy,
-                status: fakeStudentFromDB.status,
-                classId: fakeStudentFromDB.classId
+                studentId: studentFromDB.studentId,
+                firstName: studentFromDB.firstName,
+                lastName: studentFromDB.lastName,
+                level: studentFromDB.level,
+                fieldOfStudy: studentFromDB.fieldOfStudy,
+                status: studentFromDB.status,
+                classId: studentFromDB.classId
             }
         };
-        // --- FIN DE LA SIMULATION ---
 
         await logApiRequest(db, requestBody, successResponse, 200, clientIp);
         return NextResponse.json(successResponse, { status: 200 });
 
     } catch (error) {
-        console.error("Erreur de simulation:", error);
-        const errorResponse = { success: false, message: "Erreur interne du serveur lors de la simulation." };
+        console.error("Erreur lors de la validation de l'étudiant:", error);
+        const errorResponse = { success: false, message: "Erreur interne du serveur lors de la validation." };
         await logApiRequest(db, requestBody, errorResponse, 500, clientIp);
         return NextResponse.json(errorResponse, { status: 500 });
     }
