@@ -6,14 +6,9 @@ service cloud.firestore {
     // Règle pour la collection des étudiants
     match /students/{studentId} {
       // Les admins connectés peuvent tout lire, écrire, mettre à jour, supprimer
+      // Les services serveur (auth == null) peuvent lire pour valider
       allow read, write: if request.auth != null;
-    }
-
-    // Autorise la lecture (query) sur la collection 'students' par des services serveur
-    // qui n'ont pas d'authentification utilisateur (auth == null), comme notre API route.
-    // N'autorise PAS la lecture de documents individuels sans être un admin connecté.
-    match /students/{studentId} {
-        allow list: if true; // Permet aux requêtes `where` de fonctionner depuis le serveur
+      allow get, list: if request.auth == null;
     }
     
     // Règle pour la collection des classes

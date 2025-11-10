@@ -2,7 +2,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import admin from 'firebase-admin';
 import { z } from 'zod';
-import 'dotenv/config';
 
 // --- Début de la logique de Firebase Admin ---
 
@@ -18,24 +17,22 @@ const serviceAccountSchema = z.object({
   token_uri: z.string(),
   auth_provider_x509_cert_url: z.string(),
   client_x509_cert_url: z.string(),
+  universe_domain: z.string().optional(), // Rendre ce champ optionnel
 });
 
 let adminDb: admin.firestore.Firestore;
 
 // Cette fonction sera maintenant appelée UNIQUEMENT à l'intérieur de la fonction POST
 function initializeAdminApp() {
-    if (admin.apps.length > 0) {
-        if (!adminDb) {
-            adminDb = admin.firestore();
-        }
+    if (admin.apps.length > 0 && adminDb) {
         return adminDb;
     }
 
     const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
     if (!serviceAccountJson) {
-        // Cette erreur ne se produira qu'au moment de l'exécution si .env est manquant, pas au build.
-        throw new Error('La variable d\'environnement FIREBASE_SERVICE_ACCOUNT_JSON doit être définie dans le fichier .env.');
+        // Cette erreur se produira au moment de l'exécution si la variable d'environnement n'est pas définie sur Vercel
+        throw new Error('La variable d\'environnement FIREBASE_SERVICE_ACCOUNT_JSON doit être définie.');
     }
 
     try {
@@ -51,8 +48,11 @@ function initializeAdminApp() {
              console.error("Erreur de validation du JSON du compte de service:", error.flatten());
              throw new Error("Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.");
         }
-        console.error("Erreur d'initialisation de Firebase Admin:", error.message);
-        throw new Error("Impossible d'initialiser le SDK Firebase Admin. Vérifiez le contenu du fichier .env.");
+        // Ne pas logger l'erreur si elle indique simplement que l'app existe déjà
+        if (error.code !== 'app/duplicate-app') {
+            console.error("Erreur d'initialisation de Firebase Admin:", error.message);
+            throw new Error("Impossible d'initialiser le SDK Firebase Admin.");
+        }
     }
     
     adminDb = admin.firestore();
@@ -88,7 +88,6 @@ async function logApiRequest(db: admin.firestore.Firestore, request: NextRequest
             statusCode,
             isSuccess: statusCode === 200,
             clientIp: request.ip || 'unknown',
-            headers: request.headers,
         };
         await db.collection('request-logs').add(logData);
     } catch (logError) {
