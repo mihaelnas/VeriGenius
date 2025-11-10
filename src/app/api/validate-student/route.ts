@@ -1,5 +1,5 @@
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import admin from 'firebase-admin';
 import { z } from 'zod';
 import 'dotenv/config';
@@ -20,18 +20,22 @@ const serviceAccountSchema = z.object({
   client_x509_cert_url: z.string(),
 });
 
+let adminDb: admin.firestore.Firestore;
+
 // Cette fonction sera maintenant appelée UNIQUEMENT à l'intérieur de la fonction POST
-function getAdminDb() {
+function initializeAdminApp() {
+    if (admin.apps.length > 0) {
+        if (!adminDb) {
+            adminDb = admin.firestore();
+        }
+        return adminDb;
+    }
+
     const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
     if (!serviceAccountJson) {
         // Cette erreur ne se produira qu'au moment de l'exécution si .env est manquant, pas au build.
         throw new Error('La variable d\'environnement FIREBASE_SERVICE_ACCOUNT_JSON doit être définie dans le fichier .env.');
-    }
-
-    // Évite la réinitialisation si l'app est déjà initialisée (utile en dev)
-    if (admin.apps.length > 0) {
-        return admin.firestore();
     }
 
     try {
@@ -51,7 +55,8 @@ function getAdminDb() {
         throw new Error("Impossible d'initialiser le SDK Firebase Admin. Vérifiez le contenu du fichier .env.");
     }
     
-    return admin.firestore();
+    adminDb = admin.firestore();
+    return adminDb;
 }
 
 // --- Fin de la logique Firebase Admin ---
@@ -59,7 +64,7 @@ function getAdminDb() {
 
 // Schéma de validation pour le corps de la requête POST
 const studentValidationSchema = z.object({
-  studentId: z.string().regex(/^\d{4}\s[A-Z]-[A-Z]$/, "Le format du matricule doit être '1234 A-B'."),
+  studentId: z.string().regex(/^\d{4} [A-Z]-[A-Z]$/, "Le format du matricule doit être '1234 A-B'."),
   firstName: z.string().min(1, 'Le prénom de l\'étudiant est requis'),
   lastName: z.string().min(1, 'Le nom de l\'étudiant est requis'),
 });
@@ -74,69 +79,83 @@ const capitalize = (str: string) => {
         .join(' ');
 };
 
-export async function POST(request: Request) {
-  console.log("--- Nouvelle requête POST reçue sur /api/validate-student ---");
+async function logApiRequest(db: admin.firestore.Firestore, request: NextRequest, requestBody: any, responseBody: any, statusCode: number) {
+    try {
+        const logData = {
+            timestamp: new Date().toISOString(),
+            requestBody,
+            responseBody,
+            statusCode,
+            isSuccess: statusCode === 200,
+            clientIp: request.ip || 'unknown',
+            headers: request.headers,
+        };
+        await db.collection('request-logs').add(logData);
+    } catch (logError) {
+        console.error("Échec de l'écriture du log API :", logError);
+    }
+}
+
+
+export async function POST(request: NextRequest) {
+  let db;
+  let responseBody;
+  let statusCode;
+  const requestBody = await request.json();
+
   try {
-    // L'initialisation se fait ici, au moment de l'appel !
-    const adminDb = getAdminDb();
-
-    const body = await request.json();
-    console.log("Corps de la requête (Body):", body);
-
-    const validationResult = studentValidationSchema.safeParse(body);
+    db = initializeAdminApp();
+    const validationResult = studentValidationSchema.safeParse(requestBody);
 
     if (!validationResult.success) {
-      const errorResponse = { error: 'Données invalides', details: validationResult.error.flatten() };
-      console.log("Réponse envoyée (400 - Données invalides):", errorResponse);
-      return NextResponse.json(errorResponse, { status: 400 });
+      statusCode = 400;
+      responseBody = { error: 'Données invalides', details: validationResult.error.flatten() };
+      return NextResponse.json(responseBody, { status: statusCode });
     }
 
     const { studentId, firstName, lastName } = validationResult.data;
 
-    const studentsRef = adminDb.collection('students');
+    const studentsRef = db.collection('students');
     const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
 
     if (snapshot.empty) {
-      const errorResponse = { error: 'Étudiant non trouvé avec ce matricule' };
-      console.log("Réponse envoyée (404 - Étudiant non trouvé):", errorResponse);
-      return NextResponse.json(errorResponse, { status: 404 });
+      statusCode = 404;
+      responseBody = { error: 'Étudiant non trouvé avec ce matricule' };
+      return NextResponse.json(responseBody, { status: statusCode });
     }
 
     const studentDoc = snapshot.docs[0];
     const studentData = studentDoc.data();
 
-    // Normalisation des noms pour la comparaison
     const formattedRequestFirstName = capitalize(firstName);
     const formattedRequestLastName = lastName.toUpperCase();
 
     if (studentData.firstName !== formattedRequestFirstName || studentData.lastName !== formattedRequestLastName) {
-      const errorResponse = { error: 'Le nom ou prénom ne correspond pas au matricule' };
-      console.log("Réponse envoyée (403 - Incohérence nom/matricule):", errorResponse);
-      return NextResponse.json(errorResponse, { status: 403 });
+      statusCode = 403;
+      responseBody = { error: 'Le nom ou prénom ne correspond pas au matricule' };
+      return NextResponse.json(responseBody, { status: statusCode });
     }
     
     if (studentData.status === 'pending_payment' || studentData.status === 'inactive') {
-        const errorResponse = { error: 'Le statut de l\'étudiant ne permet pas l\'inscription. Paiement en attente ou inactif.' };
-        console.log("Réponse envoyée (402 - Statut invalide):", errorResponse);
-        return NextResponse.json(errorResponse, { status: 402 });
+        statusCode = 402;
+        responseBody = { error: 'Le statut de l\'étudiant ne permet pas l\'inscription. Paiement en attente ou inactif.' };
+        return NextResponse.json(responseBody, { status: statusCode });
     }
 
-    // Si la validation réussit
-    const successResponse = {
+    statusCode = 200;
+    responseBody = {
       message: 'Étudiant validé avec succès',
       classId: studentData.classId,
     };
-    console.log("Réponse envoyée (200 - Succès):", successResponse);
-    return NextResponse.json(successResponse, { status: 200 });
+    return NextResponse.json(responseBody, { status: statusCode });
 
   } catch (error) {
-    console.error('Erreur de validation de l\'étudiant:', error);
-    const errorResponse = { error: 'Erreur interne du serveur', details: error instanceof Error ? error.message : 'Erreur inconnue' };
-    console.log("Réponse envoyée (500 - Erreur interne):", errorResponse);
-
-    if (error instanceof Error) {
-        return NextResponse.json({ error: 'Erreur interne du serveur', details: error.message }, { status: 500 });
-    }
-    return NextResponse.json({ error: 'Erreur interne du serveur' }, { status: 500 });
+    statusCode = 500;
+    responseBody = { error: 'Erreur interne du serveur', details: error instanceof Error ? error.message : 'Erreur inconnue' };
+    return NextResponse.json(responseBody, { status: statusCode });
+  } finally {
+      if(db && responseBody) {
+        await logApiRequest(db, request, requestBody, responseBody, statusCode || 500);
+      }
   }
 }

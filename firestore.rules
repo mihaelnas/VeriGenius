@@ -21,5 +21,15 @@ service cloud.firestore {
        // Les admins connectés peuvent tout lire, écrire, mettre à jour, supprimer
       allow read, write: if request.auth != null;
     }
+    
+    // Règle pour la collection des logs de l'API
+    match /request-logs/{logId} {
+        // L'API (non authentifiée en tant qu'utilisateur) peut créer des logs
+        allow create: if request.auth == null;
+        // Les admins connectés peuvent lire les logs
+        allow read: if request.auth != null;
+        // Personne ne peut modifier ou supprimer les logs pour garantir leur intégrité
+        allow update, delete: if false;
+    }
   }
 }

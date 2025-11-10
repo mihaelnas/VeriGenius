@@ -45,3 +45,13 @@ export interface Class {
   fieldOfStudy: string;
   studentIds?: string[];
 }
+
+export interface ApiRequestLog {
+  id: string;
+  timestamp: string;
+  requestBody: object;
+  responseBody: object;
+  statusCode: number;
+  isSuccess: boolean;
+  clientIp: string;
+}
