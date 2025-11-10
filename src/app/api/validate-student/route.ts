@@ -25,11 +25,14 @@ let adminDb: admin.firestore.Firestore | null = null;
 
 // Fonction d'initialisation "paresseuse"
 function initializeAdminApp() {
-    // Ne rien faire si l'application est déjà initialisée
+    // Si l'app est déjà initialisée et que adminDb a une référence, on la retourne
+    if (admin.apps.length > 0 && adminDb) {
+        return adminDb;
+    }
+    
+    // Si l'app est initialisée mais que adminDb est null (cas peu probable), on le réassigne
     if (admin.apps.length > 0) {
-        if (!adminDb) {
-            adminDb = admin.firestore();
-        }
+        adminDb = admin.firestore();
         return adminDb;
     }
 
@@ -41,7 +44,6 @@ function initializeAdminApp() {
 
     try {
         const serviceAccount = JSON.parse(serviceAccountJson);
-        // Valider le format du JSON avant de l'utiliser
         const validation = serviceAccountSchema.safeParse(serviceAccount);
         if (!validation.success) {
             console.error("CRITICAL: Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.", validation.error.flatten());
@@ -56,6 +58,7 @@ function initializeAdminApp() {
         return adminDb;
     } catch (error: any) {
         console.error("CRITICAL: Erreur lors de l'initialisation de Firebase Admin:", error.message);
+        // Si l'erreur est que l'app existe déjà, on récupère l'instance existante
         if (error.code === 'app/duplicate-app') {
              if (!adminDb) {
                 adminDb = admin.firestore();
