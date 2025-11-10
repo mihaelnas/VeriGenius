@@ -5,7 +5,6 @@ import admin from 'firebase-admin';
 import { studentValidationSchema } from '@/lib/verigenius-types';
 import type { Student } from '@/lib/verigenius-types';
 
-// Schéma de validation pour la clé de compte de service
 const serviceAccountSchema = z.object({
   type: z.string(),
   project_id: z.string(),
@@ -20,7 +19,6 @@ const serviceAccountSchema = z.object({
   universe_domain: z.string().optional(),
 });
 
-// Fonction d'initialisation robuste et simplifiée pour l'environnement serverless
 function initializeAdminApp() {
   if (admin.apps.length > 0) {
     return admin.firestore();
@@ -72,27 +70,22 @@ export async function POST(request: NextRequest) {
     let requestBody: any = {};
     let db: admin.firestore.Firestore;
 
-    // 1. Initialiser la DB en premier
     try {
         db = initializeAdminApp();
     } catch (error: any) {
         console.error("Échec de l'initialisation de la base de données Admin:", error.message);
-        // Ne peut pas journaliser si la DB ne s'initialise pas.
         const response = { success: false, message: "Erreur critique du serveur: La base de données n'a pas pu être initialisée." };
         return NextResponse.json(response, { status: 500 });
     }
 
-    // 2. Essayer de lire le corps de la requête
     try {
         requestBody = await request.json();
     } catch (error) {
         const response = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
-        // Maintenant, nous pouvons journaliser cette erreur !
         await logApiRequest(db, { error: "Invalid JSON body" }, response, 400, clientIp);
         return NextResponse.json(response, { status: 400 });
     }
     
-    // 3. Valider les données
     const validation = studentValidationSchema.safeParse(requestBody);
     if (!validation.success) {
         const response = { success: false, message: "Données de validation invalides.", errors: validation.error.flatten() };
@@ -100,49 +93,8 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(response, { status: 400 });
     }
     
-    // 4. Logique métier
-    const { studentId, firstName, lastName } = validation.data;
-
-    try {
-        const studentsRef = db.collection('students');
-        const querySnapshot = await studentsRef
-            .where('studentId', '==', studentId)
-            .limit(1)
-            .get();
-
-        if (querySnapshot.empty) {
-            const response = { success: false, message: "Validation échouée: Étudiant non trouvé." };
-            await logApiRequest(db, requestBody, response, 404, clientIp);
-            return NextResponse.json(response, { status: 404 });
-        }
-
-        const studentDoc = querySnapshot.docs[0];
-        const studentData = studentDoc.data() as Student;
-
-        const isNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase() &&
-                            studentData.lastName.toLowerCase() === lastName.toLowerCase();
-
-        if (!isNameMatch) {
-            const response = { success: false, message: "Validation échouée: Le nom ne correspond pas." };
-            await logApiRequest(db, requestBody, response, 403, clientIp);
-            return NextResponse.json(response, { status: 403 });
-        }
-        
-        if (studentData.status !== 'fully_paid' && studentData.status !== 'partially_paid') {
-            const response = { success: false, message: "Validation échouée: Le statut de l'étudiant n'est pas valide pour l'accès.", status: studentData.status };
-            await logApiRequest(db, requestBody, response, 403, clientIp);
-            return NextResponse.json(response, { status: 403 });
-        }
-
-        const response = { success: true, message: "Validation réussie.", classId: studentData.classId };
-        await logApiRequest(db, requestBody, response, 200, clientIp);
-        return NextResponse.json(response, { status: 200 });
-
-    } catch (error: any) {
-        console.error("Erreur serveur lors de la validation:", error);
-        const response = { success: false, message: "Erreur interne du serveur." };
-        // S'assure de journaliser aussi les erreurs serveur inattendues
-        await logApiRequest(db, requestBody, response, 500, clientIp);
-        return NextResponse.json(response, { status: 500 });
-    }
+    // DEBUG STEP 1: Return success after initialization, without DB query.
+    const debugResponse = { success: true, message: "DEBUG: Admin SDK Initialized successfully." };
+    await logApiRequest(db, requestBody, debugResponse, 200, clientIp);
+    return NextResponse.json(debugResponse, { status: 200 });
 }
