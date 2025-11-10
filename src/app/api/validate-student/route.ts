@@ -4,40 +4,6 @@ import admin from 'firebase-admin';
 import { studentValidationSchema } from '@/lib/verigenius-types';
 import type { Student } from '@/lib/verigenius-types';
 
-/**
- * Initialise l'application Firebase Admin si elle ne l'est pas déjà.
- * Utilise des variables d'environnement individuelles pour une meilleure fiabilité sur Vercel.
- * @returns {admin.firestore.Firestore} L'instance de la base de données Firestore.
- */
-function initializeAdminApp() {
-  if (admin.apps.length > 0) {
-    return admin.firestore();
-  }
-
-  // Vérification manuelle des variables d'environnement
-  const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
-  if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
-      console.error("CRITICAL: Une ou plusieurs variables d'environnement Firebase sont manquantes.");
-      throw new Error("Configuration du serveur incomplète. Assurez-vous que FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, et FIREBASE_PRIVATE_KEY sont définies.");
-  }
-
-  try {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: FIREBASE_PROJECT_ID,
-        clientEmail: FIREBASE_CLIENT_EMAIL,
-        // Remplace les séquences d'échappement \n par de vrais sauts de ligne pour Vercel
-        privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      }),
-    });
-    console.log('Firebase Admin SDK initialisé avec succès.');
-    return admin.firestore();
-  } catch (error: any) {
-    console.error("CRITICAL: Erreur lors de l'initialisation de Firebase Admin:", error.message);
-    throw new Error("Erreur irrécupérable lors de l'initialisation de Firebase Admin.");
-  }
-}
-
 // Fonction de journalisation séparée
 async function logApiRequest(db: admin.firestore.Firestore, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
     try {
@@ -51,44 +17,53 @@ async function logApiRequest(db: admin.firestore.Firestore, requestBody: any, re
         };
         await db.collection('request-logs').add(logEntry);
     } catch (error) {
-        console.error("Erreur lors de la journalisation de la requête API:", error);
+        console.error("Erreur critique lors de la journalisation de la requête API:", error);
         // Ne pas propager l'erreur de journalisation pour ne pas masquer l'erreur originale
     }
 }
 
 export async function POST(request: NextRequest) {
     const clientIp = request.ip;
-    let db: admin.firestore.Firestore;
     let requestBody: any = {};
+    let db: admin.firestore.Firestore;
 
     try {
-        db = initializeAdminApp();
-    } catch (error: any) {
-        console.error("Erreur fatale lors de l'initialisation de la DB:", error);
-        // Impossible de journaliser ici car la DB n'a pas pu être initialisée
-        const errorResponse = { success: false, message: "Erreur de configuration interne du serveur." };
-        return NextResponse.json(errorResponse, { status: 500 });
-    }
+        // --- DEBUT DE LA LOGIQUE D'INITIALISATION INTEGREE ---
+        if (admin.apps.length > 0) {
+            db = admin.firestore();
+        } else {
+            const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
+            if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
+                throw new Error("Variables d'environnement Firebase manquantes.");
+            }
+            admin.initializeApp({
+                credential: admin.credential.cert({
+                    projectId: FIREBASE_PROJECT_ID,
+                    clientEmail: FIREBASE_CLIENT_EMAIL,
+                    privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+                }),
+            });
+            db = admin.firestore();
+        }
+        // --- FIN DE LA LOGIQUE D'INITIALISATION ---
 
-    try {
-        requestBody = await request.json();
-    } catch (error) {
-        const response = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
-        // Journaliser l'échec de lecture du JSON
-        await logApiRequest(db, {error: "Invalid JSON body"}, response, 400, clientIp);
-        return NextResponse.json(response, { status: 400 });
-    }
+        try {
+            requestBody = await request.json();
+        } catch (jsonError) {
+            const response = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
+            await logApiRequest(db, {error: "Invalid JSON body"}, response, 400, clientIp);
+            return NextResponse.json(response, { status: 400 });
+        }
 
-    const validation = studentValidationSchema.safeParse(requestBody);
-    if (!validation.success) {
-        const response = { success: false, message: "Données de validation invalides.", errors: validation.error.flatten() };
-        await logApiRequest(db, requestBody, response, 400, clientIp);
-        return NextResponse.json(response, { status: 400 });
-    }
-    
-    const { studentId, firstName, lastName } = validation.data;
+        const validation = studentValidationSchema.safeParse(requestBody);
+        if (!validation.success) {
+            const response = { success: false, message: "Données de validation invalides.", errors: validation.error.flatten() };
+            await logApiRequest(db, requestBody, response, 400, clientIp);
+            return NextResponse.json(response, { status: 400 });
+        }
+        
+        const { studentId, firstName, lastName } = validation.data;
 
-    try {
         const studentsRef = db.collection('students');
         const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
 
@@ -137,11 +112,20 @@ export async function POST(request: NextRequest) {
         await logApiRequest(db, requestBody, successResponse, 200, clientIp);
         return NextResponse.json(successResponse, { status: 200 });
 
-    } catch (error) {
-        console.error("Erreur lors de la validation de l'étudiant:", error);
-        const errorResponse = { success: false, message: "Erreur interne du serveur lors de la validation." };
-        // Journaliser l'erreur serveur
-        await logApiRequest(db, requestBody, errorResponse, 500, clientIp);
+    } catch (error: any) {
+        console.error("Erreur interne majeure dans l'API:", error);
+        const errorResponse = { success: false, message: "Erreur interne du serveur lors de la validation.", error: error.message };
+        
+        // TENTATIVE DE LOGGING DE LA DERNIERE CHANCE
+        // Si db est initialisé, on l'utilise. Sinon, on ne peut pas logger.
+        if (admin.apps.length > 0) {
+            try {
+                await logApiRequest(admin.firestore(), requestBody, errorResponse, 500, clientIp);
+            } catch (logError) {
+                console.error("Impossible de logger l'erreur finale:", logError);
+            }
+        }
+        
         return NextResponse.json(errorResponse, { status: 500 });
     }
 }
