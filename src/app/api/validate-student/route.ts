@@ -56,35 +56,30 @@ function initializeAdminApp() {
 
 // Fonction de journalisation séparée
 async function logApiRequest(db: admin.firestore.Firestore | null, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
-    if (!db) return; // Ne pas journaliser si la base de données n'est pas disponible
-    try {
-        const logEntry = {
-            timestamp: new Date().toISOString(),
-            requestBody,
-            responseBody,
-            statusCode,
-            isSuccess: statusCode === 200,
-            clientIp: clientIp || 'Unknown',
-        };
-        await db.collection('request-logs').add(logEntry);
-    } catch (error) {
-        console.error("Erreur lors de la journalisation de la requête API:", error);
-    }
+    // Temporairement désactivé pour le test
+    // if (!db) return; 
+    // try {
+    //     const logEntry = {
+    //         timestamp: new Date().toISOString(),
+    //         requestBody,
+    //         responseBody,
+    //         statusCode,
+    //         isSuccess: statusCode === 200,
+    //         clientIp: clientIp || 'Unknown',
+    //     };
+    //     await db.collection('request-logs').add(logEntry);
+    // } catch (error) {
+    //     console.error("Erreur lors de la journalisation de la requête API:", error);
+    // }
 }
 
 
 export async function POST(request: NextRequest) {
     const clientIp = request.ip;
     let requestBody: any;
-    let db: admin.firestore.Firestore | null = null;
     
-    try {
-      db = initializeAdminApp();
-    } catch(initError: any) {
-        const errorResponse = { success: false, message: "Erreur critique du serveur lors de l'initialisation." };
-        // On ne peut pas journaliser ici car l'initialisation a échoué.
-        return NextResponse.json(errorResponse, { status: 500 });
-    }
+    // On n'initialise pas la DB pour ce test pour isoler la logique de comparaison
+    const db = null; 
 
     try {
         requestBody = await request.json();
@@ -104,32 +99,38 @@ export async function POST(request: NextRequest) {
     const { studentId, firstName, lastName } = validation.data;
 
     try {
-        const studentsRef = db.collection('students');
-        const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
+        // --- DÉBUT DE LA SIMULATION ---
+        // On crée un "faux" étudiant qui correspond à la requête de test
+        const fakeStudentFromDB: Student = {
+            id: 'fake-id',
+            studentId: "1814 H-F",
+            firstName: "Irinah",
+            lastName: "RAOEL",
+            level: 'L3',
+            fieldOfStudy: 'IG',
+            status: 'fully_paid',
+            classId: 'L3-IG-G1'
+        };
 
-        if (snapshot.empty) {
-            const response = { success: false, message: `L'étudiant avec le matricule ${studentId} n'a pas été trouvé.` };
-            await logApiRequest(db, requestBody, response, 404, clientIp);
-            return NextResponse.json(response, { status: 404 });
-        }
+        const isFirstNameMatch = fakeStudentFromDB.firstName.toLowerCase() === firstName.toLowerCase();
+        const isLastNameMatch = fakeStudentFromDB.lastName.toLowerCase() === lastName.toLowerCase();
+        
+        // On ajoute des logs pour voir ce qui est comparé
+        console.log(`Comparaison Prénom: DB='${fakeStudentFromDB.firstName.toLowerCase()}' vs REQUETE='${firstName.toLowerCase()}' -> ${isFirstNameMatch}`);
+        console.log(`Comparaison Nom: DB='${fakeStudentFromDB.lastName.toLowerCase()}' vs REQUETE='${lastName.toLowerCase()}' -> ${isLastNameMatch}`);
 
-        const studentDoc = snapshot.docs[0];
-        const studentData = studentDoc.data() as Student;
-
-        const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
-        const isLastNameMatch = studentData.lastName.toLowerCase() === lastName.toLowerCase();
 
         if (!isFirstNameMatch || !isLastNameMatch) {
-            const response = { success: false, message: "Le nom ou le prénom ne correspond pas au matricule fourni." };
+            const response = { success: false, message: "DEBUG (SIMULATION): Le nom ou le prénom ne correspond pas." };
             await logApiRequest(db, requestBody, response, 403, clientIp);
             return NextResponse.json(response, { status: 403 });
         }
         
-        if (studentData.status !== 'fully_paid' && studentData.status !== 'partially_paid') {
+        if (fakeStudentFromDB.status !== 'fully_paid' && fakeStudentFromDB.status !== 'partially_paid') {
             const response = { 
                 success: false, 
-                message: "Le statut de paiement de l'étudiant ne permet pas la validation.",
-                status: studentData.status
+                message: "DEBUG (SIMULATION): Le statut de paiement de l'étudiant ne permet pas la validation.",
+                status: fakeStudentFromDB.status
             };
             await logApiRequest(db, requestBody, response, 403, clientIp);
             return NextResponse.json(response, { status: 403 });
@@ -137,24 +138,25 @@ export async function POST(request: NextRequest) {
 
         const successResponse = {
             success: true,
-            message: "La validité de l'étudiant a été confirmée.",
+            message: "DEBUG (SIMULATION): La validité de l'étudiant a été confirmée.",
             student: {
-                studentId: studentData.studentId,
-                firstName: studentData.firstName,
-                lastName: studentData.lastName,
-                level: studentData.level,
-                fieldOfStudy: studentData.fieldOfStudy,
-                status: studentData.status,
-                classId: studentData.classId
+                studentId: fakeStudentFromDB.studentId,
+                firstName: fakeStudentFromDB.firstName,
+                lastName: fakeStudentFromDB.lastName,
+                level: fakeStudentFromDB.level,
+                fieldOfStudy: fakeStudentFromDB.fieldOfStudy,
+                status: fakeStudentFromDB.status,
+                classId: fakeStudentFromDB.classId
             }
         };
+        // --- FIN DE LA SIMULATION ---
 
         await logApiRequest(db, requestBody, successResponse, 200, clientIp);
         return NextResponse.json(successResponse, { status: 200 });
 
     } catch (error) {
-        console.error("Erreur serveur lors de la validation de l'étudiant:", error);
-        const errorResponse = { success: false, message: "Erreur interne du serveur. Impossible de traiter la demande." };
+        console.error("Erreur de simulation:", error);
+        const errorResponse = { success: false, message: "Erreur interne du serveur lors de la simulation." };
         await logApiRequest(db, requestBody, errorResponse, 500, clientIp);
         return NextResponse.json(errorResponse, { status: 500 });
     }
