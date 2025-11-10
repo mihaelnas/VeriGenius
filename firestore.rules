@@ -4,27 +4,25 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     // Règle pour la collection des étudiants
+    // N'importe qui peut lire (nécessaire pour l'API de validation publique)
+    // Seuls les administrateurs connectés peuvent écrire
     match /students/{studentId} {
-      // Le serveur (auth == null) et les admins (auth != null) peuvent lire
-      allow read: if request.auth == null || request.auth != null;
-      // Seuls les admins connectés peuvent écrire
+      allow read: if true;
       allow write: if request.auth != null;
     }
     
     // Règle pour la collection des classes
+    // Les admins connectés peuvent tout lire, écrire, mettre à jour, supprimer
     match /classes/{classId} {
-       // Les admins connectés peuvent tout lire, écrire, mettre à jour, supprimer
-      allow read, write: if request.auth != null;
+       allow read, write: if request.auth != null;
     }
     
     // Règle pour la collection des logs de l'API
+    // Seuls les administrateurs connectés peuvent lire les journaux
+    // Personne ne peut écrire directement ici via cette méthode
     match /request-logs/{logId} {
-        // L'API (non authentifiée en tant qu'utilisateur) peut créer des logs
-        allow create: if request.auth == null;
-        // Les admins connectés peuvent lire les logs
         allow read: if request.auth != null;
-        // Personne ne peut modifier ou supprimer les logs pour garantir leur intégrité
-        allow update, delete: if false;
+        allow write: if false; // Block client-side writes
     }
   }
 }

@@ -1,30 +1,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { studentValidationSchema } from '@/lib/verigenius-types';
-import admin from 'firebase-admin';
-import { z } from 'zod';
+import { studentValidationSchema, type Student } from '@/lib/verigenius-types';
+import { initializeApp, getApps, getApp, deleteApp } from 'firebase/app';
+import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
+import { firebaseConfig } from '@/firebase/config';
 
-// Helper to prevent re-initialization in some environments
-function getFirebaseAdminApp() {
-    if (admin.apps.length > 0) {
-        return admin.app();
+// Helper to initialize Firebase App on the server, specific for this route
+function getFirebaseApp() {
+    // Use a unique name to avoid conflicts
+    const appName = `api-validate-student-${Date.now()}`;
+    if (getApps().some(app => app.name === appName)) {
+        return getApp(appName);
     }
-
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
-
-    if (!projectId || !clientEmail || !privateKey) {
-        throw new Error("Les variables d'environnement Firebase ne sont pas toutes définies.");
-    }
-
-    return admin.initializeApp({
-        credential: admin.credential.cert({
-            projectId,
-            clientEmail,
-            privateKey,
-        }),
-    });
+    return initializeApp(firebaseConfig, appName);
 }
 
 export async function POST(request: NextRequest) {
@@ -33,8 +21,11 @@ export async function POST(request: NextRequest) {
     let responsePayload: object = {};
     let statusCode: number = 500;
     let isSuccess = false;
+    let logMessage = "An unexpected error occurred.";
 
     const timestamp = new Date().toISOString();
+    const app = getFirebaseApp();
+    const db = getFirestore(app);
 
     try {
         // STEP 1: Parse and Validate Request Body
@@ -42,43 +33,90 @@ export async function POST(request: NextRequest) {
             requestBody = await request.json();
         } catch (jsonError) {
             statusCode = 400;
-            responsePayload = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
+            logMessage = "Invalid JSON body.";
+            responsePayload = { success: false, message: logMessage };
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
             statusCode = 400;
-            responsePayload = { success: false, message: "Données de validation invalides.", errors: validation.error.flatten() };
+            logMessage = "Invalid validation data.";
+            responsePayload = { success: false, message: logMessage, errors: validation.error.flatten() };
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
         const { studentId, firstName, lastName } = validation.data;
-        
-        // STEP 2: Initialize Firebase Admin
-        const adminApp = getFirebaseAdminApp();
-        const db = admin.firestore(adminApp);
-        
-        // STEP 3.2a: Attempt a minimal read on the 'students' collection
-        const studentsRef = db.collection('students');
-        await studentsRef.limit(1).get();
 
+        // STEP 2: Query Firestore using the client SDK
+        const studentsRef = collection(db, "students");
+        const studentQuery = query(studentsRef, where("studentId", "==", studentId));
+        const querySnapshot = await getDocs(studentQuery);
 
-        // If we reach here, the minimal read was successful
+        if (querySnapshot.empty) {
+            statusCode = 404;
+            isSuccess = false;
+            logMessage = `Validation failed: Student with matricule '${studentId}' not found.`;
+            responsePayload = { success: isSuccess, message: logMessage };
+            return NextResponse.json(responsePayload, { status: statusCode });
+        }
+
+        const studentDoc = querySnapshot.docs[0];
+        const studentData = studentDoc.data() as Student;
+
+        // STEP 3: Compare names (case-insensitive for first name, case-sensitive for last name)
+        const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
+        const isLastNameMatch = studentData.lastName === lastName.toUpperCase();
+
+        if (!isFirstNameMatch || !isLastNameMatch) {
+            statusCode = 401;
+            isSuccess = false;
+            logMessage = "Validation failed: First name or last name does not match.";
+            responsePayload = { success: isSuccess, message: logMessage };
+            return NextResponse.json(responsePayload, { status: statusCode });
+        }
+        
+        // STEP 4: Check student status
+        if (studentData.status === 'inactive') {
+            statusCode = 403;
+            isSuccess = false;
+            logMessage = "Validation failed: Student account is inactive.";
+            responsePayload = { success: isSuccess, message: logMessage };
+            return NextResponse.json(responsePayload, { status: statusCode });
+        }
+
+        // STEP 5: Success
         statusCode = 200;
         isSuccess = true;
-        responsePayload = { success: true, message: "DEBUG Step 3.2a: Simple read on 'students' collection attempted." };
+        logMessage = "Validation successful.";
+        responsePayload = {
+            success: isSuccess,
+            message: logMessage,
+            student: {
+                firstName: studentData.firstName,
+                lastName: studentData.lastName,
+                studentId: studentData.studentId,
+                fieldOfStudy: studentData.fieldOfStudy,
+                level: studentData.level,
+                status: studentData.status
+            }
+        };
+
         return NextResponse.json(responsePayload, { status: statusCode });
 
     } catch (error: any) {
-        console.error("Erreur interne dans l'API:", error);
+        console.error("Internal API Error:", error);
         statusCode = 500;
-        responsePayload = { success: false, message: "Erreur interne du serveur.", error: error.message };
         isSuccess = false;
+        logMessage = "Internal server error during API execution.";
+        responsePayload = { success: false, message: logMessage, error: error.message };
+        
+        // This will now only be hit for unexpected errors, not for validation failures
+        return NextResponse.json(responsePayload, { status: statusCode });
 
-        // Attempt to log the failure if possible
+    } finally {
+        // Log the final outcome
         try {
-            const db = admin.app().firestore();
             const logEntry = {
                 timestamp,
                 requestBody,
@@ -86,13 +124,17 @@ export async function POST(request: NextRequest) {
                 statusCode,
                 isSuccess,
                 clientIp,
-                error: error.message || 'Unknown error during execution',
             };
-            await db.collection('request-logs').add(logEntry);
+            // Note: We're not using admin SDK here, so direct log writing isn't straightforward
+            // In a real scenario, you'd send this to a separate logging service or a different Firebase function.
+            // For now, we console.log it on the server.
+            console.log("API Request Log:", JSON.stringify(logEntry, null, 2));
+
         } catch (logError) {
-            console.error("Échec de la journalisation de l'erreur:", logError);
+            console.error("Failed to log API request:", logError);
         }
         
-        return NextResponse.json(responsePayload, { status: statusCode });
+        // Clean up the temporary Firebase app instance
+        await deleteApp(app);
     }
 }
