@@ -1,15 +1,21 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { studentValidationSchema } from '@/lib/verigenius-types';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
+import { studentValidationSchema, type Student } from '@/lib/verigenius-types';
+import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
+import { getFirestore, collection, query, where, getDocs, Firestore } from 'firebase/firestore';
 import { firebaseConfig } from '@/firebase/config';
 
-// --- ÉTAPE 2 DU DÉBOGAGE ---
-// Initialisation stable du SDK Client Firebase
+// --- INITIALISATION STABLE DU SDK CLIENT ---
 // https://firebase.google.com/docs/web/setup
-const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(firebaseApp);
+let firebaseApp: FirebaseApp;
+let db: Firestore;
+
+if (getApps().length === 0) {
+    firebaseApp = initializeApp(firebaseConfig);
+} else {
+    firebaseApp = getApp();
+}
+db = getFirestore(firebaseApp);
 
 export async function POST(request: NextRequest) {
     try {
@@ -25,27 +31,61 @@ export async function POST(request: NextRequest) {
             }, { status: 400 });
         }
 
-        const { studentId } = validation.data;
+        const { studentId, firstName, lastName } = validation.data;
 
-        // 2. Tenter une lecture simple sur Firestore
+        // 2. Exécution de la requête (Étape 2 - acquise)
         const studentsRef = collection(db, 'students');
         const q = query(studentsRef, where('studentId', '==', studentId));
-        
-        // Exécuter la requête mais ne rien faire avec le résultat pour le moment.
-        // Le but est de voir si cette ligne elle-même provoque une erreur.
-        await getDocs(q);
+        const querySnapshot = await getDocs(q);
 
-        // Si la ligne ci-dessus n'a pas crashé, c'est un succès pour cette étape.
+        // 3. Traitement des résultats
+        if (querySnapshot.empty) {
+            return NextResponse.json({
+                success: false,
+                message: `Student with ID '${studentId}' not found.`,
+            }, { status: 404 });
+        }
+
+        const studentDoc = querySnapshot.docs[0];
+        const studentData = studentDoc.data() as Omit<Student, 'id'>;
+
+        // Vérification du nom et du prénom (insensible à la casse)
+        if (studentData.firstName.toLowerCase() !== firstName.toLowerCase() || studentData.lastName.toLowerCase() !== lastName.toLowerCase()) {
+            return NextResponse.json({
+                success: false,
+                message: "First name or last name does not match.",
+            }, { status: 403 }); // 403 Forbidden est plus approprié qu'un 404
+        }
+        
+        // Vérification du statut
+        if (studentData.status === 'inactive') {
+            return NextResponse.json({
+                success: false,
+                message: "Student account is inactive.",
+            }, { status: 403 });
+        }
+
+        // Si tout est correct, renvoyer les données de l'étudiant
+        const responsePayload = {
+            firstName: studentData.firstName,
+            lastName: studentData.lastName,
+            studentId: studentData.studentId,
+            fieldOfStudy: studentData.fieldOfStudy,
+            level: studentData.level,
+            status: studentData.status
+        };
+
         return NextResponse.json({
             success: true,
-            message: "DEBUG STEP 2: Firebase query executed successfully."
+            message: "Validation successful.",
+            student: responsePayload
         }, { status: 200 });
 
     } catch (error: any) {
-        console.error("DEBUG STEP 2 - Internal API Error:", error);
+        console.error("Internal API Error:", error);
         return NextResponse.json({ 
             success: false, 
-            message: "Internal server error during Firebase query.", 
+            message: "Internal server error.", 
             error: error.message 
         }, { status: 500 });
     }
