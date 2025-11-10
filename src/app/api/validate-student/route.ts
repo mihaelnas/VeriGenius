@@ -20,26 +20,17 @@ const serviceAccountSchema = z.object({
   universe_domain: z.string().optional(),
 });
 
-// Instance Admin partagée, initialisée une seule fois.
-let adminDb: admin.firestore.Firestore | null = null;
 
-// Fonction d'initialisation "paresseuse"
+// Fonction d'initialisation robuste pour l'environnement serverless
 function initializeAdminApp() {
-    // Si l'app est déjà initialisée et que adminDb a une référence, on la retourne
-    if (admin.apps.length > 0 && adminDb) {
-        return adminDb;
-    }
-    
-    // Si l'app est initialisée mais que adminDb est null (cas peu probable), on le réassigne
     if (admin.apps.length > 0) {
-        adminDb = admin.firestore();
-        return adminDb;
+        return admin.firestore();
     }
 
     const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
     if (!serviceAccountJson) {
         console.error("CRITICAL: La variable d'environnement FIREBASE_SERVICE_ACCOUNT_JSON n'est pas définie.");
-        return null;
+        throw new Error("Configuration du serveur incomplète.");
     }
 
     try {
@@ -47,25 +38,21 @@ function initializeAdminApp() {
         const validation = serviceAccountSchema.safeParse(serviceAccount);
         if (!validation.success) {
             console.error("CRITICAL: Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.", validation.error.flatten());
-            return null;
+            throw new Error("Configuration du service account invalide.");
         }
 
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
         });
         console.log('Firebase Admin SDK initialisé avec succès.');
-        adminDb = admin.firestore();
-        return adminDb;
+        return admin.firestore();
     } catch (error: any) {
         console.error("CRITICAL: Erreur lors de l'initialisation de Firebase Admin:", error.message);
-        // Si l'erreur est que l'app existe déjà, on récupère l'instance existante
-        if (error.code === 'app/duplicate-app') {
-             if (!adminDb) {
-                adminDb = admin.firestore();
-            }
-            return adminDb;
+         // Si l'erreur est que l'app existe déjà (cas de concurrence), on essaie de la récupérer
+        if (error.code === 'app/duplicate-app' && admin.apps.length > 0) {
+            return admin.firestore();
         }
-        return null;
+        throw new Error("Erreur irrécupérable lors de l'initialisation de Firebase Admin.");
     }
 }
 
@@ -82,30 +69,34 @@ async function logApiRequest(db: admin.firestore.Firestore, requestBody: any, re
         };
         await db.collection('request-logs').add(logEntry);
     } catch (error) {
+        // Ne pas laisser une erreur de log faire planter la requête principale
         console.error("Erreur lors de la journalisation de la requête API:", error);
     }
 }
 
 export async function POST(request: NextRequest) {
     const clientIp = request.ip;
+    let db: admin.firestore.Firestore;
     let requestBody: any;
-
-    // Initialisation paresseuse de Firebase Admin au début de la requête
-    const db = initializeAdminApp();
-
-    if (!db) {
-        const response = { success: false, message: "Erreur critique du serveur: La base de données n'est pas initialisée." };
-        // Le log ne peut pas fonctionner ici car la DB n'est pas là, mais c'est une erreur critique qui doit être résolue via les logs serveur.
-        return NextResponse.json(response, { status: 500 });
-    }
 
     try {
         requestBody = await request.json();
     } catch (error) {
+        // Impossible de logger dans la DB car on ne peut pas l'initialiser sans risquer un crash.
+        // Cette erreur est fondamentale et doit être vue dans les logs Vercel.
         const response = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
-        await logApiRequest(db, {}, response, 400, clientIp);
         return NextResponse.json(response, { status: 400 });
     }
+
+    try {
+        db = initializeAdminApp();
+    } catch (error: any) {
+        console.error("Échec de l'initialisation de la base de données Admin:", error.message);
+        const response = { success: false, message: "Erreur critique du serveur: La base de données n'est pas initialisée." };
+        // Le log ne peut pas fonctionner ici, mais c'est une erreur critique.
+        return NextResponse.json(response, { status: 500 });
+    }
+    
 
     const validation = studentValidationSchema.safeParse(requestBody);
 
@@ -155,10 +146,11 @@ export async function POST(request: NextRequest) {
     } catch (error: any) {
         console.error("Erreur serveur lors de la validation:", error);
         const response = { success: false, message: "Erreur interne du serveur." };
+        // On essaie de logger même en cas d'erreur de la logique principale
         await logApiRequest(db, requestBody, response, 500, clientIp);
         return NextResponse.json(response, { status: 500 });
     }
 }
 
-// force-dynamic est crucial pour les déploiements serverless comme Vercel
+// force-dynamic est crucial pour que Vercel traite ceci comme une fonction dynamique
 export const dynamic = 'force-dynamic';
