@@ -4,7 +4,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser, useAuth, useFirestore, useCollection } from '@/firebase';
-import { collection, doc, addDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -84,15 +84,13 @@ export default function Home() {
                 });
             } else {
                 // Add new student
-                const studentCollection = collection(firestore, 'students');
-                await addDoc(studentCollection, formattedData);
+                await addDoc(collection(firestore, 'students'), formattedData);
                 toast({
                     title: "Succès",
                     description: "Étudiant ajouté avec succès.",
                 });
             }
             setIsFormOpen(false);
-            // Data will refresh automatically due to useCollection hook
         } catch (error: any) {
             console.error("Error submitting form: ", error);
             toast({
@@ -112,7 +110,6 @@ export default function Home() {
                 title: "Succès",
                 description: "Étudiant supprimé avec succès.",
             });
-            // Data will refresh automatically
         } catch (error: any) {
             console.error("Error deleting student: ", error);
             toast({
