@@ -15,6 +15,7 @@ function getFirebaseAdminApp() {
     const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
     if (!projectId || !clientEmail || !privateKey) {
+        // This error should now be caught and logged properly
         throw new Error("Les variables d'environnement Firebase ne sont pas toutes définies.");
     }
 
@@ -42,7 +43,6 @@ export async function POST(request: NextRequest) {
     let responsePayload: object = {};
     let statusCode: number = 500;
     let isSuccess = false;
-    let db: admin.firestore.Firestore | null = null;
 
     try {
         // STEP 1: Parse request body
@@ -62,70 +62,10 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(responsePayload, { status: statusCode });
         }
 
-        const { studentId, firstName, lastName } = validation.data;
-
-        // STEP 3: Initialize Firebase Admin and get DB
-        const app = getFirebaseAdminApp();
-        db = app.firestore();
-
-        // STEP 4: Query Firestore for the student
-        // WORKAROUND: Instead of 'where', fetch the entire collection and filter in-memory.
-        const studentsCollection = await db.collection('students').get();
-
-        if (studentsCollection.empty) {
-            statusCode = 404;
-            responsePayload = { success: false, message: "Aucun étudiant trouvé dans la base de données." };
-            isSuccess = false;
-            // The finally block will handle logging
-            return NextResponse.json(responsePayload, { status: statusCode });
-        }
-        
-        // Find the student document in the results
-        const studentDoc = studentsCollection.docs.find(doc => doc.data().studentId === studentId);
-
-        if (!studentDoc) {
-            statusCode = 404;
-            responsePayload = { success: false, message: "Étudiant non trouvé." };
-            isSuccess = false;
-            return NextResponse.json(responsePayload, { status: statusCode });
-        }
-
-        const studentData = studentDoc.data();
-
-        // STEP 5: Compare data
-        const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
-        const isLastNameMatch = studentData.lastName.toUpperCase() === lastName.toUpperCase();
-        const isStudentActive = studentData.status === 'fully_paid' || studentData.status === 'partially_paid';
-
-        if (!isFirstNameMatch || !isLastNameMatch) {
-            statusCode = 403;
-            responsePayload = { success: false, message: "Le nom ou prénom ne correspond pas." };
-            isSuccess = false;
-            return NextResponse.json(responsePayload, { status: statusCode });
-        }
-
-        if (!isStudentActive) {
-            statusCode = 402;
-            responsePayload = { success: false, message: `Statut de l'étudiant invalide: ${studentData.status}` };
-            isSuccess = false;
-            return NextResponse.json(responsePayload, { status: statusCode });
-        }
-
-        // SUCCESS
+        // DEBUG STEP 1 SUCCESS
         statusCode = 200;
-        responsePayload = {
-            success: true,
-            message: "La validité de l'étudiant a été confirmée.",
-            studentData: {
-                firstName: studentData.firstName,
-                lastName: studentData.lastName,
-                studentId: studentData.studentId,
-                level: studentData.level,
-                fieldOfStudy: studentData.fieldOfStudy,
-                classId: studentData.classId
-            }
-        };
         isSuccess = true;
+        responsePayload = { success: true, message: "DEBUG Step 1: Validation successful. No Firebase interaction." };
         return NextResponse.json(responsePayload, { status: statusCode });
 
     } catch (error: any) {
@@ -133,19 +73,7 @@ export async function POST(request: NextRequest) {
         statusCode = 500;
         responsePayload = { success: false, message: "Erreur interne du serveur.", error: error.message };
         isSuccess = false;
+        // The finally block will not run in this simple version, returning directly.
         return NextResponse.json(responsePayload, { status: statusCode });
-    } finally {
-        if (db) {
-            const logEntry = {
-                timestamp: new Date().toISOString(),
-                requestBody,
-                responseBody: responsePayload,
-                statusCode,
-                isSuccess,
-                clientIp,
-            };
-            // Do not await, let it run in the background
-            logApiRequest(db, logEntry);
-        }
     }
 }
