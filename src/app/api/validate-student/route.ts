@@ -8,7 +8,10 @@ import type { Student } from '@/lib/verigenius-types';
 export const dynamic = 'force-dynamic';
 
 async function logApiRequest(requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
-    if (!adminDb) return;
+    if (!adminDb) {
+      console.error("Tentative de log, mais adminDb n'est pas initialisé.");
+      return;
+    };
 
     try {
         const logEntry = {
@@ -29,18 +32,19 @@ export async function POST(request: NextRequest) {
     const clientIp = request.ip;
     let requestBody: any;
 
+    if (!adminDb) {
+        const response = { success: false, message: "Erreur critique du serveur: La base de données n'est pas initialisée." };
+        // Le log échouera probablement aussi, mais on tente quand même
+        await logApiRequest({}, response, 500, clientIp);
+        return NextResponse.json(response, { status: 500 });
+    }
+
     try {
         requestBody = await request.json();
     } catch (error) {
         const response = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
         await logApiRequest({}, response, 400, clientIp);
         return NextResponse.json(response, { status: 400 });
-    }
-
-    if (!adminDb) {
-        const response = { success: false, message: "Erreur critique du serveur: La base de données n'est pas initialisée." };
-        await logApiRequest(requestBody, response, 500, clientIp);
-        return NextResponse.json(response, { status: 500 });
     }
 
     const validation = studentValidationSchema.safeParse(requestBody);
