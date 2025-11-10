@@ -101,12 +101,61 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(response, { status: 400 });
     }
     
-    // --- DÉBUT DE L'ÉTAPE 2 DU DÉBOGAGE ---
-    // Si nous arrivons ici, c'est que la validation des données ET l'initialisation de Firebase Admin ont réussi.
-    // Nous nous arrêtons là et renvoyons une réponse de succès statique.
-    
-    const debugResponse = { success: true, message: "DEBUG: Admin SDK initialisé." };
-    await logApiRequest(db, requestBody, debugResponse, 200, clientIp);
-    return NextResponse.json(debugResponse, { status: 200 });
-    // --- FIN DE L'ÉTAPE 2 DU DÉBOGAGE ---
+    const { studentId, firstName, lastName } = validation.data;
+
+    try {
+        const studentsRef = db.collection('students');
+        const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
+
+        if (snapshot.empty) {
+            const response = { success: false, message: `L'étudiant avec le matricule ${studentId} n'a pas été trouvé.` };
+            await logApiRequest(db, requestBody, response, 404, clientIp);
+            return NextResponse.json(response, { status: 404 });
+        }
+
+        const studentDoc = snapshot.docs[0];
+        const studentData = studentDoc.data() as Student;
+
+        const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
+        const isLastNameMatch = studentData.lastName.toLowerCase() === lastName.toLowerCase();
+
+        if (!isFirstNameMatch || !isLastNameMatch) {
+            const response = { success: false, message: "Le nom ou le prénom ne correspond pas au matricule fourni." };
+            await logApiRequest(db, requestBody, response, 403, clientIp);
+            return NextResponse.json(response, { status: 403 });
+        }
+        
+        if (studentData.status !== 'fully_paid' && studentData.status !== 'partially_paid') {
+            const response = { 
+                success: false, 
+                message: "Le statut de paiement de l'étudiant ne permet pas la validation.",
+                status: studentData.status
+            };
+            await logApiRequest(db, requestBody, response, 403, clientIp);
+            return NextResponse.json(response, { status: 403 });
+        }
+
+        const successResponse = {
+            success: true,
+            message: "La validité de l'étudiant a été confirmée.",
+            student: {
+                studentId: studentData.studentId,
+                firstName: studentData.firstName,
+                lastName: studentData.lastName,
+                level: studentData.level,
+                fieldOfStudy: studentData.fieldOfStudy,
+                status: studentData.status,
+                classId: studentData.classId
+            }
+        };
+
+        await logApiRequest(db, requestBody, successResponse, 200, clientIp);
+        return NextResponse.json(successResponse, { status: 200 });
+
+    } catch (error) {
+        console.error("Erreur serveur lors de la validation de l'étudiant:", error);
+        const errorResponse = { success: false, message: "Erreur interne du serveur. Impossible de traiter la demande." };
+        await logApiRequest(db, requestBody, errorResponse, 500, clientIp);
+        return NextResponse.json(errorResponse, { status: 500 });
+    }
 }
