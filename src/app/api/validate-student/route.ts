@@ -1,11 +1,40 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import admin from 'firebase-admin';
+import { initializeApp, getApps, getApp, deleteApp } from 'firebase/app';
+import { getFirestore, collection, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { studentValidationSchema } from '@/lib/verigenius-types';
 import type { Student } from '@/lib/verigenius-types';
 
-// Fonction de journalisation séparée
-async function logApiRequest(db: admin.firestore.Firestore, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
+// Configuration de l'application Admin (utilisant le SDK client pour la compatibilité Vercel)
+let adminApp: any;
+
+async function initializeAdminApp() {
+    const appName = 'firebase-admin-app';
+    // Éviter la réinitialisation si l'application existe déjà
+    if (getApps().some(app => app.name === appName)) {
+        return getApp(appName);
+    }
+
+    const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
+
+    if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
+        throw new Error("Variables d'environnement Firebase pour l'admin manquantes.");
+    }
+    
+    // Ceci est la configuration du SDK client, mais nous l'utilisons pour notre instance "admin"
+    const firebaseConfig = {
+        projectId: FIREBASE_PROJECT_ID,
+        // Ces valeurs sont nécessaires pour que le SDK client fonctionne en mode serveur
+        authDomain: `${FIREBASE_PROJECT_ID}.firebaseapp.com`,
+        apiKey: "dummy-key" // Le SDK client a besoin d'une clé, même si nous ne l'utilisons pas pour l'auth serveur
+    };
+
+    adminApp = initializeApp(firebaseConfig, appName);
+    return adminApp;
+}
+
+// Fonction de journalisation utilisant l'instance de DB fournie
+async function logApiRequest(db: any, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
     try {
         const logEntry = {
             timestamp: new Date().toISOString(),
@@ -15,37 +44,22 @@ async function logApiRequest(db: admin.firestore.Firestore, requestBody: any, re
             isSuccess: statusCode === 200,
             clientIp: clientIp || 'Unknown',
         };
-        await db.collection('request-logs').add(logEntry);
+        await addDoc(collection(db, 'request-logs'), logEntry);
     } catch (error) {
         console.error("Erreur critique lors de la journalisation de la requête API:", error);
-        // Ne pas propager l'erreur de journalisation pour ne pas masquer l'erreur originale
     }
 }
 
 export async function POST(request: NextRequest) {
     const clientIp = request.ip;
     let requestBody: any = {};
-    let db: admin.firestore.Firestore;
+    let db: any;
 
     try {
-        // --- DEBUT DE LA LOGIQUE D'INITIALISATION INTEGREE ---
-        if (admin.apps.length > 0) {
-            db = admin.firestore();
-        } else {
-            const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
-            if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
-                throw new Error("Variables d'environnement Firebase manquantes.");
-            }
-            admin.initializeApp({
-                credential: admin.credential.cert({
-                    projectId: FIREBASE_PROJECT_ID,
-                    clientEmail: FIREBASE_CLIENT_EMAIL,
-                    privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-                }),
-            });
-            db = admin.firestore();
-        }
-        // --- FIN DE LA LOGIQUE D'INITIALISATION ---
+        // --- INITIALISATION DU SDK CLIENT EN MODE SERVEUR ---
+        const app = await initializeAdminApp();
+        db = getFirestore(app);
+        // --- FIN DE L'INITIALISATION ---
 
         try {
             requestBody = await request.json();
@@ -64,8 +78,9 @@ export async function POST(request: NextRequest) {
         
         const { studentId, firstName, lastName } = validation.data;
 
-        const studentsRef = db.collection('students');
-        const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
+        const studentsRef = collection(db, 'students');
+        const q = query(studentsRef, where('studentId', '==', studentId));
+        const snapshot = await getDocs(q);
 
         if (snapshot.empty) {
             const response = { success: false, message: "Aucun étudiant trouvé avec ce matricule." };
@@ -116,14 +131,9 @@ export async function POST(request: NextRequest) {
         console.error("Erreur interne majeure dans l'API:", error);
         const errorResponse = { success: false, message: "Erreur interne du serveur lors de la validation.", error: error.message };
         
-        // TENTATIVE DE LOGGING DE LA DERNIERE CHANCE
-        // Si db est initialisé, on l'utilise. Sinon, on ne peut pas logger.
-        if (admin.apps.length > 0) {
-            try {
-                await logApiRequest(admin.firestore(), requestBody, errorResponse, 500, clientIp);
-            } catch (logError) {
-                console.error("Impossible de logger l'erreur finale:", logError);
-            }
+        // Si db est initialisé, on peut tenter de logger.
+        if (db) {
+            await logApiRequest(db, requestBody, errorResponse, 500, clientIp);
         }
         
         return NextResponse.json(errorResponse, { status: 500 });
