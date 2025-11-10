@@ -17,10 +17,11 @@ export interface Student {
   id: string; // Document ID
   firstName: string;
   lastName: string;
-  studentId: string;
+  studentId: string; // matricule
   level: string;
   fieldOfStudy: string;
   status: 'pending' | 'active' | 'inactive';
+  classId: string; // Reference to the Class document
 }
 
 // Internal class representation (matches Firestore document)
@@ -37,7 +38,7 @@ export interface Class {
  * Validates student identity against the Firestore database.
  * @param firestore The Firestore instance.
  * @param payload The student data from the API request.
- * @returns The matching student record or null if not found.
+ * @returns The matching student record or null if not found or if data is inconsistent.
  */
 export async function validateStudentIdentity(firestore: Firestore, payload: StudentValidationPayload): Promise<Student | null> {
   const studentsRef = firestore.collection('students');
@@ -51,53 +52,56 @@ export async function validateStudentIdentity(firestore: Firestore, payload: Stu
     .get();
 
   if (snapshot.empty) {
+    console.log("Validation failed: No student found with the provided details.");
     return null;
   }
 
   const studentDoc = snapshot.docs[0];
   const studentData = studentDoc.data() as Omit<Student, 'id'>;
 
+  // Ensure the student has a classId assigned.
+  if (!studentData.classId) {
+    console.log(`Validation failed: Student ${studentDoc.id} has no classId assigned.`);
+    return null;
+  }
+
   return { ...studentData, id: studentDoc.id };
 }
 
 /**
- * Finds all matching classes and assigns the student to the one with the fewest students.
+ * Retrieves the class assigned to the student.
  * @param firestore The Firestore instance.
- * @param student A valid student object.
- * @returns A matching class or null if not found.
+ * @param student A valid student object with a classId.
+ * @returns The matching Class object or null if not found.
  */
 export async function assignClassForStudent(firestore: Firestore, student: Student): Promise<Class | null> {
-    const classesRef = firestore.collection('classes');
-    const snapshot = await classesRef
-        .where('level', '==', student.level)
-        .where('fieldOfStudy', '==', student.fieldOfStudy)
-        .get();
+    if (!student.classId) {
+        console.error(`Attempted to assign class for student ${student.id} but classId is missing.`);
+        return null;
+    }
 
-    if (snapshot.empty) {
-        return null; // No classes found for this level and field of study
+    const classRef = firestore.collection('classes').doc(student.classId);
+    const classDoc = await classRef.get();
+
+    if (!classDoc.exists) {
+        console.error(`Class with ID ${student.classId} assigned to student ${student.id} does not exist.`);
+        return null;
     }
     
-    const classes = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-            id: doc.id,
-            name: data.name,
-            level: data.level,
-            fieldOfStudy: data.fieldOfStudy,
-            studentIds: data.studentIds || []
-        } as Class;
-    });
+    const classData = classDoc.data() as Omit<Class, 'id'>
 
-    // Find the class with the minimum number of students
-    const classWithFewestStudents = classes.reduce((prev, current) => {
-        return (prev.studentIds!.length < current.studentIds!.length) ? prev : current;
-    });
+    // Optional: Verify that student's level/filiere matches the class's
+    if (classData.level !== student.level || classData.fieldOfStudy !== student.fieldOfStudy) {
+        console.warn(`Mismatch: Student ${student.id} (${student.level}, ${student.fieldOfStudy}) is assigned to class ${classDoc.id} (${classData.level}, ${classData.fieldOfStudy})`);
+        // Depending on strictness, you might want to return null here.
+    }
 
-    return classWithFewestStudents;
+    return { ...classData, id: classDoc.id };
 }
 
 /**
- * Updates a student's status to 'active' and enrolls them in a class in Firestore.
+ * Updates a student's status to 'active' and ensures they are in the class's student list.
+ * This function is now idempotent, it won't add the student if they are already in the list.
  * @param firestore The Firestore instance.
  * @param studentId The ID of the student to update.
  * @param classId The ID of the class to enroll the student in.
@@ -110,17 +114,17 @@ export async function updateStudentStatusInDb(firestore: Firestore, studentId: s
 
     const batch = firestore.batch();
 
-    // Update student's status
+    // Update student's status to 'active'
     batch.update(studentRef, { status: 'active' });
 
-    // Add student's ID to the class's studentIds array
+    // Add student's document ID to the class's studentIds array if not already present
     batch.update(classRef, {
       studentIds: FieldValue.arrayUnion(studentId)
     });
 
     await batch.commit();
     
-    console.log(`Firestore updated: Student ${studentId} status set to active and added to class ${classId}.`);
+    console.log(`Firestore updated: Student ${studentId} status set to active and enrolled in class ${classId}.`);
     return true;
   } catch (error) {
     console.error("Error updating student status in DB:", error);

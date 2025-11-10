@@ -30,6 +30,10 @@
             "type": "string",
             "description": "The student's current status.",
             "enum": ["pending", "active", "inactive"]
+        },
+        "classId": {
+            "type": "string",
+            "description": "A reference to the Class document this student is enrolled in."
         }
       },
       "required": [
@@ -38,7 +42,8 @@
         "studentId",
         "level",
         "fieldOfStudy",
-        "status"
+        "status",
+        "classId"
       ]
     },
     "Class": {
@@ -61,7 +66,7 @@
         },
         "studentIds": {
           "type": "array",
-          "description": "References to Students enrolled in this Class. (Relationship: Class 1:N Student)",
+          "description": "An array of student document IDs for students enrolled in this class.",
           "items": {
             "type": "string"
           }
@@ -89,7 +94,7 @@
           "schema": {
             "$ref": "#/backend/entities/Student"
           },
-          "description": "Stores student profile information. The document ID is a unique ID. Includes fields: firstName, lastName, studentId (matricule), level, fieldOfStudy, status.",
+          "description": "Stores student profile information. The document ID is a unique ID. Includes fields: firstName, lastName, studentId (matricule), level, fieldOfStudy, status, and classId.",
           "params": [
             {
               "name": "studentId",
@@ -105,7 +110,7 @@
           "schema": {
             "$ref": "#/backend/entities/Class"
           },
-          "description": "Stores class information, including the class name, level, field of study, and a list of enrolled student document IDs. Supports efficient class assignment and validation.",
+          "description": "Stores class information, including the class name, level, field of study, and a list of enrolled student document IDs. The studentId in the student document references this document.",
           "params": [
             {
               "name": "classId",
