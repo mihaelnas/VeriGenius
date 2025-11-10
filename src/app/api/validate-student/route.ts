@@ -5,7 +5,6 @@ import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
 
 // --- Configuration Firebase Client ---
-// Ces variables doivent être définies dans Vercel en tant que NEXT_PUBLIC_...
 const firebaseConfig = {
     apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
     authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -22,17 +21,13 @@ if (!getApps().length) {
 } else {
     clientApp = getApp();
 }
+const clientDb = getFirestore(clientApp);
+
 
 // --- Logique de l'API ---
 export async function POST(request: NextRequest) {
-    let requestBody: any;
-
     try {
-        try {
-            requestBody = await request.json();
-        } catch (jsonError) {
-            return NextResponse.json({ success: false, message: "Invalid JSON body." }, { status: 400 });
-        }
+        const requestBody = await request.json();
 
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
@@ -40,8 +35,6 @@ export async function POST(request: NextRequest) {
         }
         const { studentId, firstName, lastName } = validation.data;
 
-        // Requête Firestore avec le SDK CLIENT
-        const clientDb = getFirestore(clientApp);
         const studentsRef = collection(clientDb, "students");
         const q = query(studentsRef, where("studentId", "==", studentId));
         const querySnapshot = await getDocs(q);
@@ -81,7 +74,6 @@ export async function POST(request: NextRequest) {
 
     } catch (error: any) {
         console.error("Internal API Error:", error);
-        // Ne pas journaliser ici, car nous n'utilisons plus le SDK Admin
         return NextResponse.json({ success: false, message: "Internal server error.", error: error.message }, { status: 500 });
     }
 }
