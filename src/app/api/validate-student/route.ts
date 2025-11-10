@@ -13,57 +13,70 @@ const serviceAccountSchema = z.object({
   type: z.string(),
   project_id: z.string(),
   private_key_id: z.string(),
-  private_key: z.string(),
-  client_email: z.string(),
+  private_key: z.string().startsWith('-----BEGIN PRIVATE KEY-----'),
+  client_email: z.string().email(),
   client_id: z.string(),
-  auth_uri: z.string(),
-  token_uri: z.string(),
-  auth_provider_x509_cert_url: z.string(),
-  client_x509_cert_url: z.string(),
-  universe_domain: z.string().optional(), // Rendre ce champ optionnel
+  auth_uri: z.string().url(),
+  token_uri: z.string().url(),
+  auth_provider_x509_cert_url: z.string().url(),
+  client_x509_cert_url: z.string().url(),
+  universe_domain: z.string().optional(),
 });
 
 let adminDb: admin.firestore.Firestore;
 
-// Cette fonction sera maintenant appelée UNIQUEMENT à l'intérieur de la fonction POST
+// Fonction d'initialisation robuste pour les environnements serverless
 function initializeAdminApp() {
-    if (admin.apps.length > 0 && adminDb) {
-        return adminDb;
+    // Si l'application admin est déjà initialisée, ne rien faire
+    if (admin.apps.length > 0) {
+        if (!adminDb) {
+            adminDb = admin.firestore();
+        }
+        return;
     }
 
     const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
     
-    // Log pour le débogage
-    console.log('Contenu de FIREBASE_SERVICE_ACCOUNT_JSON:', serviceAccountJson ? 'Variable présente' : 'Variable ABSENTE');
+    // Log crucial pour le débogage sur Vercel
+    console.log('Vérification de FIREBASE_SERVICE_ACCOUNT_JSON:', serviceAccountJson ? 'Variable présente.' : 'Variable ABSENTE ou vide.');
 
     if (!serviceAccountJson) {
-        // Cette erreur se produira au moment de l'exécution si la variable d'environnement n'est pas définie sur Vercel
-        throw new Error('La variable d\'environnement FIREBASE_SERVICE_ACCOUNT_JSON doit être définie.');
+        throw new Error('La variable d\'environnement FIREBASE_SERVICE_ACCOUNT_JSON doit être définie sur Vercel.');
     }
 
     try {
         const serviceAccount = JSON.parse(serviceAccountJson);
-        // Valider le JSON avec Zod pour plus de sécurité
-        serviceAccountSchema.parse(serviceAccount);
+        const validation = serviceAccountSchema.safeParse(serviceAccount);
         
+        if (!validation.success) {
+            console.error("Erreur de validation Zod du JSON du compte de service:", validation.error.flatten());
+            throw new Error("Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.");
+        }
+        
+        console.log('Initialisation de Firebase Admin...');
         admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
         });
+        
+        adminDb = admin.firestore();
+        console.log('Firebase Admin initialisé avec succès.');
+
     } catch (error: any) {
-        if (error instanceof z.ZodError) {
-             console.error("Erreur de validation du JSON du compte de service:", error.flatten());
-             throw new Error("Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.");
-        }
-        // Ne pas logger l'erreur si elle indique simplement que l'app existe déjà
-        if (error.code !== 'app/duplicate-app') {
-            console.error("Erreur d'initialisation de Firebase Admin:", error);
+        // Cette erreur est normale si plusieurs appels arrivent en même temps ("cold start")
+        if (error.code === 'app/duplicate-app') {
+            console.warn("Avertissement: Tentative d'initialisation dupliquée de Firebase Admin interceptée.");
+             if (!adminDb) {
+                adminDb = admin.firestore();
+             }
+        } else {
+            console.error("Erreur critique lors de l'initialisation de Firebase Admin:", error);
             throw new Error("Impossible d'initialiser le SDK Firebase Admin.");
         }
     }
-    
-    adminDb = admin.firestore();
-    return adminDb;
 }
+
+// Initialiser l'application une seule fois au démarrage de la fonction
+initializeAdminApp();
 
 // --- Fin de la logique Firebase Admin ---
 
@@ -104,33 +117,51 @@ async function logApiRequest(db: admin.firestore.Firestore, request: NextRequest
 
 export async function POST(request: NextRequest) {
   console.log('Requête POST reçue sur /api/validate-student');
-  let db;
   let responseBody;
   let statusCode;
-  const requestBody = await request.json();
-  console.log('Corps de la requête:', requestBody);
-
+  let requestBody;
 
   try {
-    db = initializeAdminApp();
+    requestBody = await request.json();
+    console.log('Corps de la requête:', requestBody);
+  } catch (e) {
+      statusCode = 400;
+      responseBody = { error: 'Corps de la requête invalide, doit être du JSON.' };
+      console.log('Réponse envoyée (400):', responseBody);
+      // Le logging échouera probablement si DB n'est pas prêt, mais on essaie
+      if (adminDb) await logApiRequest(adminDb, request, {error: "Invalid JSON body"}, responseBody, statusCode);
+      return NextResponse.json(responseBody, { status: statusCode });
+  }
+
+  // Vérifier que Firebase Admin est bien prêt
+  if (!adminDb) {
+    console.error("Erreur critique: adminDb n'est pas initialisé au moment de la requête.");
+    statusCode = 500;
+    responseBody = { error: 'Erreur de configuration du serveur: Base de données non initialisée.' };
+    return NextResponse.json(responseBody, { status: statusCode });
+  }
+
+  try {
     const validationResult = studentValidationSchema.safeParse(requestBody);
 
     if (!validationResult.success) {
       statusCode = 400;
       responseBody = { error: 'Données invalides', details: validationResult.error.flatten() };
       console.log('Réponse envoyée (400):', responseBody);
+      await logApiRequest(adminDb, request, requestBody, responseBody, statusCode);
       return NextResponse.json(responseBody, { status: statusCode });
     }
 
     const { studentId, firstName, lastName } = validationResult.data;
 
-    const studentsRef = db.collection('students');
+    const studentsRef = adminDb.collection('students');
     const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
 
     if (snapshot.empty) {
       statusCode = 404;
       responseBody = { error: 'Étudiant non trouvé avec ce matricule' };
       console.log('Réponse envoyée (404):', responseBody);
+      await logApiRequest(adminDb, request, requestBody, responseBody, statusCode);
       return NextResponse.json(responseBody, { status: statusCode });
     }
 
@@ -144,6 +175,7 @@ export async function POST(request: NextRequest) {
       statusCode = 403;
       responseBody = { error: 'Le nom ou prénom ne correspond pas au matricule' };
       console.log('Réponse envoyée (403):', responseBody);
+      await logApiRequest(adminDb, request, requestBody, responseBody, statusCode);
       return NextResponse.json(responseBody, { status: statusCode });
     }
     
@@ -151,6 +183,7 @@ export async function POST(request: NextRequest) {
         statusCode = 402;
         responseBody = { error: 'Le statut de l\'étudiant ne permet pas l\'inscription. Paiement en attente ou inactif.' };
         console.log('Réponse envoyée (402):', responseBody);
+        await logApiRequest(adminDb, request, requestBody, responseBody, statusCode);
         return NextResponse.json(responseBody, { status: statusCode });
     }
 
@@ -160,17 +193,18 @@ export async function POST(request: NextRequest) {
       classId: studentData.classId,
     };
     console.log('Réponse envoyée (200):', responseBody);
+    await logApiRequest(adminDb, request, requestBody, responseBody, statusCode);
     return NextResponse.json(responseBody, { status: statusCode });
 
   } catch (error) {
-    console.error('Erreur interne du serveur:', error);
+    console.error('Erreur interne du serveur lors du traitement:', error);
     statusCode = 500;
     responseBody = { error: 'Erreur interne du serveur', details: error instanceof Error ? error.message : 'Erreur inconnue' };
     console.log('Réponse envoyée (500):', responseBody);
+    // Logguer l'erreur finale
+    if(adminDb) {
+      await logApiRequest(adminDb, request, requestBody, responseBody, statusCode);
+    }
     return NextResponse.json(responseBody, { status: statusCode });
-  } finally {
-      if(db && responseBody) {
-        await logApiRequest(db, request, requestBody, responseBody, statusCode || 500);
-      }
   }
 }
