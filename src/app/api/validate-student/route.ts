@@ -1,31 +1,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { studentValidationSchema, type Student } from '@/lib/verigenius-types';
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
+import { studentValidationSchema } from '@/lib/verigenius-types';
 
-// --- Configuration Firebase Client ---
-const firebaseConfig = {
-    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
-    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
-};
+// --- ÉTAPE 1 DU DÉBOGAGE ---
+// Ce code ne contacte PAS Firebase. Il valide uniquement les données d'entrée.
 
-// --- Initialisation stable de l'app client (au niveau du module) ---
-// Cette fonction garantit que nous ne réinitialisons pas l'application à chaque requête
-let clientApp: FirebaseApp;
-if (!getApps().length) {
-    clientApp = initializeApp(firebaseConfig);
-} else {
-    clientApp = getApp();
-}
-const clientDb = getFirestore(clientApp);
-
-
-// --- Logique de l'API ---
 export async function POST(request: NextRequest) {
     try {
         const requestBody = await request.json();
@@ -33,54 +12,28 @@ export async function POST(request: NextRequest) {
         // 1. Validation des données d'entrée
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
-            return NextResponse.json({ success: false, message: "Invalid validation data.", errors: validation.error.flatten() }, { status: 400 });
-        }
-        const { studentId, firstName, lastName } = validation.data;
-
-        // 2. Requête à Firestore pour trouver l'étudiant
-        const studentsRef = collection(clientDb, "students");
-        const q = query(studentsRef, where("studentId", "==", studentId));
-        const querySnapshot = await getDocs(q);
-
-        if (querySnapshot.empty) {
-            return NextResponse.json({ success: false, message: `Validation failed: Student with matricule '${studentId}' not found.` }, { status: 404 });
-        }
-        
-        const studentDoc = querySnapshot.docs[0];
-        const studentData = studentDoc.data() as Student;
-
-        // 3. Comparaison des informations
-        const isFirstNameMatch = studentData.firstName.toLowerCase() === firstName.toLowerCase();
-        const isLastNameMatch = studentData.lastName.toUpperCase() === lastName.toUpperCase();
-
-        if (!isFirstNameMatch || !isLastNameMatch) {
-            return NextResponse.json({ success: false, message: "Validation failed: First name or last name does not match." }, { status: 401 });
+            // Le corps de la requête est invalide
+            return NextResponse.json({ 
+                success: false, 
+                message: "Invalid validation data.", 
+                errors: validation.error.flatten() 
+            }, { status: 400 });
         }
 
-        // 4. Vérification du statut de l'étudiant
-        if (studentData.status === 'inactive') {
-            return NextResponse.json({ success: false, message: "Validation failed: Student account is inactive." }, { status: 403 });
-        }
-        
-        // 5. Succès de la validation
-        const responsePayload = {
+        // Si la validation réussit, on renvoie une réponse de succès simple.
+        // Aucune base de données n'est contactée.
+        return NextResponse.json({
             success: true,
-            message: "Validation successful.",
-            student: {
-                firstName: studentData.firstName,
-                lastName: studentData.lastName,
-                studentId: studentData.studentId,
-                fieldOfStudy: studentData.fieldOfStudy,
-                level: studentData.level,
-                status: studentData.status
-            }
-        };
-
-        return NextResponse.json(responsePayload, { status: 200 });
+            message: "DEBUG STEP 1: Input data validation successful."
+        }, { status: 200 });
 
     } catch (error: any) {
-        console.error("Internal API Error:", error);
-        // Cette erreur est une erreur serveur inattendue, pas une erreur de validation
-        return NextResponse.json({ success: false, message: "Internal server error.", error: error.message }, { status: 500 });
+        // Gère les erreurs si le corps de la requête n'est pas un JSON valide
+        console.error("DEBUG STEP 1 - Internal API Error:", error);
+        return NextResponse.json({ 
+            success: false, 
+            message: "Internal server error.", 
+            error: error.message 
+        }, { status: 500 });
     }
 }
