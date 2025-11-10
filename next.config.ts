@@ -30,24 +30,6 @@ pathname: '/**',
       },
     ],
   },
-  // This is required to fix the "Module not found: Can't resolve 'child_process'" error
-  // The 'google-auth-library' which is a dependency of 'firebase-admin' has some dependencies
-  // that are not compatible with webpack5 and need to be excluded from the bundle.
-  webpack: (config, { isServer }) => {
-    if (!isServer) {
-      config.resolve.fallback = {
-        child_process: false,
-        fs: false,
-        path: false,
-        os: false,
-        crypto: false,
-      }
-    }
-    return config
-  },
-  experimental: {
-    serverComponentsExternalPackages: ['firebase-admin'],
-  },
 };
 
 export default nextConfig;
