@@ -20,16 +20,19 @@ const serviceAccountSchema = z.object({
   universe_domain: z.string().optional(),
 });
 
+// Instance Admin partagée, initialisée une seule fois.
+let adminDb: admin.firestore.Firestore | null = null;
 
 // Fonction d'initialisation "paresseuse"
 function initializeAdminApp() {
     if (admin.apps.length > 0) {
-        return admin.firestore();
+        adminDb = admin.firestore();
+        return adminDb;
     }
 
     const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
     if (!serviceAccountJson) {
-        console.error("La variable d'environnement FIREBASE_SERVICE_ACCOUNT_JSON n'est pas définie.");
+        console.error("CRITICAL: La variable d'environnement FIREBASE_SERVICE_ACCOUNT_JSON n'est pas définie.");
         return null;
     }
 
@@ -37,7 +40,7 @@ function initializeAdminApp() {
         const serviceAccount = JSON.parse(serviceAccountJson);
         const validation = serviceAccountSchema.safeParse(serviceAccount);
         if (!validation.success) {
-            console.error("Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.", validation.error.flatten());
+            console.error("CRITICAL: Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.", validation.error.flatten());
             return null;
         }
 
@@ -45,17 +48,18 @@ function initializeAdminApp() {
             credential: admin.credential.cert(serviceAccount),
         });
         console.log('Firebase Admin SDK initialisé avec succès.');
-        return admin.firestore();
+        adminDb = admin.firestore();
+        return adminDb;
     } catch (error: any) {
-        console.error("Erreur critique lors de l'initialisation de Firebase Admin:", error.message);
+        console.error("CRITICAL: Erreur lors de l'initialisation de Firebase Admin:", error.message);
         return null;
     }
 }
 
 
-async function logApiRequest(adminDb: admin.firestore.Firestore | null, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
-    if (!adminDb) {
-      console.error("Tentative de log, mais adminDb n'est pas initialisé.");
+async function logApiRequest(db: admin.firestore.Firestore | null, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
+    if (!db) {
+      console.error("Tentative de log, mais la base de données Admin n'est pas disponible.");
       return;
     };
 
@@ -68,7 +72,7 @@ async function logApiRequest(adminDb: admin.firestore.Firestore | null, requestB
             isSuccess: statusCode === 200,
             clientIp: clientIp || 'Unknown',
         };
-        await adminDb.collection('request-logs').add(logEntry);
+        await db.collection('request-logs').add(logEntry);
     } catch (error) {
         console.error("Erreur lors de la journalisation de la requête API:", error);
     }
@@ -78,13 +82,12 @@ export async function POST(request: NextRequest) {
     const clientIp = request.ip;
     let requestBody: any;
     
-    // Initialisation paresseuse de Firebase Admin
-    const adminDb = initializeAdminApp();
+    // Initialisation paresseuse de Firebase Admin si ce n'est pas déjà fait
+    const db = adminDb ?? initializeAdminApp();
 
-    if (!adminDb) {
+    if (!db) {
         const response = { success: false, message: "Erreur critique du serveur: La base de données n'est pas initialisée." };
-        // Le log échouera probablement aussi, mais on tente quand même
-        await logApiRequest(null, {}, response, 500, clientIp);
+        // Le log ne peut pas fonctionner si la DB n'est pas initialisée, mais on maintient la structure.
         return NextResponse.json(response, { status: 500 });
     }
 
@@ -92,7 +95,7 @@ export async function POST(request: NextRequest) {
         requestBody = await request.json();
     } catch (error) {
         const response = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
-        await logApiRequest(adminDb, {}, response, 400, clientIp);
+        await logApiRequest(db, {}, response, 400, clientIp);
         return NextResponse.json(response, { status: 400 });
     }
 
@@ -100,14 +103,14 @@ export async function POST(request: NextRequest) {
 
     if (!validation.success) {
         const response = { success: false, message: "Données de validation invalides.", errors: validation.error.flatten() };
-        await logApiRequest(adminDb, requestBody, response, 400, clientIp);
+        await logApiRequest(db, requestBody, response, 400, clientIp);
         return NextResponse.json(response, { status: 400 });
     }
 
     const { studentId, firstName, lastName } = validation.data;
 
     try {
-        const studentsRef = adminDb.collection('students');
+        const studentsRef = db.collection('students');
         const querySnapshot = await studentsRef
             .where('studentId', '==', studentId)
             .limit(1)
@@ -115,7 +118,7 @@ export async function POST(request: NextRequest) {
 
         if (querySnapshot.empty) {
             const response = { success: false, message: "Validation échouée: Étudiant non trouvé." };
-            await logApiRequest(adminDb, requestBody, response, 404, clientIp);
+            await logApiRequest(db, requestBody, response, 404, clientIp);
             return NextResponse.json(response, { status: 404 });
         }
 
@@ -127,26 +130,27 @@ export async function POST(request: NextRequest) {
 
         if (!isNameMatch) {
             const response = { success: false, message: "Validation échouée: Le nom ne correspond pas." };
-            await logApiRequest(adminDb, requestBody, response, 403, clientIp);
+            await logApiRequest(db, requestBody, response, 403, clientIp);
             return NextResponse.json(response, { status: 403 });
         }
         
         if (studentData.status !== 'fully_paid' && studentData.status !== 'partially_paid') {
             const response = { success: false, message: "Validation échouée: Le statut de l'étudiant n'est pas valide pour l'accès.", status: studentData.status };
-            await logApiRequest(adminDb, requestBody, response, 403, clientIp);
+            await logApiRequest(db, requestBody, response, 403, clientIp);
             return NextResponse.json(response, { status: 403 });
         }
 
         const response = { success: true, message: "Validation réussie.", classId: studentData.classId };
-        await logApiRequest(adminDb, requestBody, response, 200, clientIp);
+        await logApiRequest(db, requestBody, response, 200, clientIp);
         return NextResponse.json(response, { status: 200 });
 
     } catch (error: any) {
         console.error("Erreur serveur lors de la validation:", error);
         const response = { success: false, message: "Erreur interne du serveur." };
-        await logApiRequest(adminDb, requestBody, response, 500, clientIp);
+        await logApiRequest(db, requestBody, response, 500, clientIp);
         return NextResponse.json(response, { status: 500 });
     }
 }
 
+// force-dynamic est crucial pour les déploiements serverless comme Vercel
 export const dynamic = 'force-dynamic';
