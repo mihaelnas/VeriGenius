@@ -16,7 +16,9 @@ export const studentValidationSchema = z.object({
 export const studentCreationSchema = studentValidationSchema.extend({
   id: z.string().optional(),
   status: z.enum(["pending_payment", "partially_paid", "fully_paid", "inactive"]).default('pending_payment'),
-  classId: z.string().min(1, "L'ID de la classe est requis"),
+  classId: z.string()
+    .min(1, "L'ID de la classe est requis")
+    .regex(/^(L[1-3]|M[1-2])-(IG|GB|ASR|OCC|GID)-G[1-9][0-9]*$/, "Le format de l'ID de classe doit être NIVEAU-FILIERE-GROUPE (ex: L1-IG-G1)"),
 });
 
 export type StudentValidationPayload = z.infer<typeof studentValidationSchema>;
