@@ -75,15 +75,20 @@ const capitalize = (str: string) => {
 };
 
 export async function POST(request: Request) {
+  console.log("--- Nouvelle requête POST reçue sur /api/validate-student ---");
   try {
     // L'initialisation se fait ici, au moment de l'appel !
     const adminDb = getAdminDb();
 
     const body = await request.json();
+    console.log("Corps de la requête (Body):", body);
+
     const validationResult = studentValidationSchema.safeParse(body);
 
     if (!validationResult.success) {
-      return NextResponse.json({ error: 'Données invalides', details: validationResult.error.flatten() }, { status: 400 });
+      const errorResponse = { error: 'Données invalides', details: validationResult.error.flatten() };
+      console.log("Réponse envoyée (400 - Données invalides):", errorResponse);
+      return NextResponse.json(errorResponse, { status: 400 });
     }
 
     const { studentId, firstName, lastName } = validationResult.data;
@@ -92,7 +97,9 @@ export async function POST(request: Request) {
     const snapshot = await studentsRef.where('studentId', '==', studentId).limit(1).get();
 
     if (snapshot.empty) {
-      return NextResponse.json({ error: 'Étudiant non trouvé avec ce matricule' }, { status: 404 });
+      const errorResponse = { error: 'Étudiant non trouvé avec ce matricule' };
+      console.log("Réponse envoyée (404 - Étudiant non trouvé):", errorResponse);
+      return NextResponse.json(errorResponse, { status: 404 });
     }
 
     const studentDoc = snapshot.docs[0];
@@ -103,21 +110,30 @@ export async function POST(request: Request) {
     const formattedRequestLastName = lastName.toUpperCase();
 
     if (studentData.firstName !== formattedRequestFirstName || studentData.lastName !== formattedRequestLastName) {
-      return NextResponse.json({ error: 'Le nom ou prénom ne correspond pas au matricule' }, { status: 403 });
+      const errorResponse = { error: 'Le nom ou prénom ne correspond pas au matricule' };
+      console.log("Réponse envoyée (403 - Incohérence nom/matricule):", errorResponse);
+      return NextResponse.json(errorResponse, { status: 403 });
     }
     
     if (studentData.status === 'pending_payment' || studentData.status === 'inactive') {
-        return NextResponse.json({ error: 'Le statut de l\'étudiant ne permet pas l\'inscription. Paiement en attente ou inactif.' }, { status: 402 });
+        const errorResponse = { error: 'Le statut de l\'étudiant ne permet pas l\'inscription. Paiement en attente ou inactif.' };
+        console.log("Réponse envoyée (402 - Statut invalide):", errorResponse);
+        return NextResponse.json(errorResponse, { status: 402 });
     }
 
     // Si la validation réussit
-    return NextResponse.json({
+    const successResponse = {
       message: 'Étudiant validé avec succès',
       classId: studentData.classId,
-    }, { status: 200 });
+    };
+    console.log("Réponse envoyée (200 - Succès):", successResponse);
+    return NextResponse.json(successResponse, { status: 200 });
 
   } catch (error) {
     console.error('Erreur de validation de l\'étudiant:', error);
+    const errorResponse = { error: 'Erreur interne du serveur', details: error instanceof Error ? error.message : 'Erreur inconnue' };
+    console.log("Réponse envoyée (500 - Erreur interne):", errorResponse);
+
     if (error instanceof Error) {
         return NextResponse.json({ error: 'Erreur interne du serveur', details: error.message }, { status: 500 });
     }
