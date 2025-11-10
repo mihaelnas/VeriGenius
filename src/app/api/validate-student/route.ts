@@ -14,7 +14,7 @@ const firebaseConfig = {
     appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-// --- Initialisation stable de l'app client ---
+// --- Initialisation stable de l'app client (au niveau du module) ---
 // Cette fonction garantit que nous ne réinitialisons pas l'application à chaque requête
 let clientApp: FirebaseApp;
 if (!getApps().length) {
