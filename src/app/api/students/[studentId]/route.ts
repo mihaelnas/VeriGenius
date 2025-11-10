@@ -40,6 +40,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
         }
 
         const body = await request.json();
+        // Use safeParse to avoid throwing errors on invalid data
         const validation = studentCreationSchema.safeParse(body);
         if (!validation.success) {
             return NextResponse.json({ error: 'Invalid input', details: validation.error.flatten() }, { status: 400 });
