@@ -190,14 +190,13 @@ export default function Home() {
                                     <TableHead>Matricule</TableHead>
                                     <TableHead>Filière</TableHead>
                                     <TableHead>Niveau</TableHead>
-                                    <TableHead>Statut</TableHead>
                                     <TableHead className="text-right">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {isLoadingData ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="text-center">
+                                        <TableCell colSpan={5} className="text-center">
                                             <div className="flex justify-center items-center p-8">
                                                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                                             </div>
@@ -205,7 +204,7 @@ export default function Home() {
                                     </TableRow>
                                 ) : students.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={6} className="text-center">Aucun étudiant trouvé.</TableCell>
+                                        <TableCell colSpan={5} className="text-center">Aucun étudiant trouvé.</TableCell>
                                     </TableRow>
                                 ) : (
                                     students.map((student) => (
@@ -214,9 +213,6 @@ export default function Home() {
                                             <TableCell>{student.studentId}</TableCell>
                                             <TableCell>{student.fieldOfStudy}</TableCell>
                                             <TableCell>{student.level}</TableCell>
-                                            <TableCell>
-                                                <Badge variant={getStatusVariant(student.status)}>{student.status}</Badge>
-                                            </TableCell>
                                             <TableCell className="text-right">
                                                 <AlertDialog>
                                                     <DropdownMenu>
