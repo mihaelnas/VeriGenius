@@ -3,18 +3,18 @@ import { z } from 'zod';
 export const SupportedFieldOfStudy = z.enum(["IG", "GB", "ASR", "OCC", "GID"]);
 export const SupportedLevel = z.enum(["L1", "L2", "L3", "M1", "M2"]);
 
-// Schema for student data received in the API request
+// Schema for student data received in the API request for validation
 export const studentValidationSchema = z.object({
   studentId: z.string().regex(/^\d{4} [A-Z]-[A-Z]$/, "Le format du matricule doit être '1234 A-B'."),
   firstName: z.string().min(1, 'Le prénom de l\'étudiant est requis'),
   lastName: z.string().min(1, 'Le nom de l\'étudiant est requis'),
-  level: SupportedLevel,
-  fieldOfStudy: SupportedFieldOfStudy,
 });
 
-// Schema for creating/updating a student (includes status)
+// Schema for creating/updating a student via the dashboard (includes status)
 export const studentCreationSchema = studentValidationSchema.extend({
   id: z.string().optional(),
+  level: SupportedLevel,
+  fieldOfStudy: SupportedFieldOfStudy,
   status: z.enum(["pending_payment", "partially_paid", "fully_paid", "inactive"]).default('pending_payment'),
   classId: z.string()
     .min(1, "L'ID de la classe est requis")
