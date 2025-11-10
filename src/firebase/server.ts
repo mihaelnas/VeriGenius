@@ -5,23 +5,25 @@ import { getApps } from 'firebase-admin/app';
 export function initializeFirebase() {
   if (!getApps().length) {
     try {
-      // Attempt to initialize via GOOGLE_APPLICATION_CREDENTIALS
+      // Attempt to initialize via GOOGLE_APPLICATION_CREDENTIALS if available in production
       admin.initializeApp();
     } catch (e) {
       if (process.env.NODE_ENV === "production") {
         console.warn('Automatic initialization failed. Ensure GOOGLE_APPLICATION_CREDENTIALS is set.', e);
       }
-      // Fallback for local development if needed, though credentials should be preferred
-      admin.initializeApp();
+      // This is a fallback for local development or environments without the credential file.
+      // It relies on the Firebase CLI's default credential discovery.
     }
   }
   return getSdks();
 }
 
 export function getSdks() {
+  // Ensure we return the firestore instance from the initialized app
+  const app = admin.app();
   return {
-    firebaseApp: admin.app(),
-    auth: admin.auth(),
-    firestore: admin.firestore()
+    firebaseApp: app,
+    auth: admin.auth(app),
+    firestore: admin.firestore(app)
   };
 }
