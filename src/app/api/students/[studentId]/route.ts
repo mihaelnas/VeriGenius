@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server';
 import { initializeFirebase } from '@/firebase/server';
 import { studentCreationSchema } from '@/lib/verigenius-types';
@@ -22,7 +23,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         return NextResponse.json({ id: studentDoc.id, ...studentDoc.data() });
     } catch (error) {
         console.error(`Error fetching student ${params.studentId}:`, error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        return NextResponse.json({ error: 'Internal Server Error', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
     }
 }
 
@@ -51,7 +52,7 @@ export async function PUT(request: Request, { params }: RouteParams) {
         return NextResponse.json({ id: params.studentId, ...studentData });
     } catch (error) {
         console.error(`Error updating student ${params.studentId}:`, error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        return NextResponse.json({ error: 'Internal Server Error', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
     }
 }
 
@@ -72,6 +73,6 @@ export async function DELETE(request: Request, { params }: RouteParams) {
         return new NextResponse(null, { status: 204 }); // No Content
     } catch (error) {
         console.error(`Error deleting student ${params.studentId}:`, error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        return NextResponse.json({ error: 'Internal Server Error', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
     }
 }

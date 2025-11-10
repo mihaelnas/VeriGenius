@@ -1,3 +1,4 @@
+
 import { NextResponse } from 'next/server';
 import { initializeFirebase } from '@/firebase/server';
 import { studentCreationSchema, type Student } from '@/lib/verigenius-types';
@@ -11,7 +12,7 @@ export async function GET() {
         return NextResponse.json(students);
     } catch (error) {
         console.error('Error fetching students:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        return NextResponse.json({ error: 'Internal Server Error', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
     }
 }
 
@@ -34,6 +35,6 @@ export async function POST(request: Request) {
 
     } catch (error) {
         console.error('Error creating student:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+        return NextResponse.json({ error: 'Internal Server Error', details: error instanceof Error ? error.message : 'Unknown error' }, { status: 500 });
     }
 }
