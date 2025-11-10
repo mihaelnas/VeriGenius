@@ -3,6 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import admin from 'firebase-admin';
 import { z } from 'zod';
 
+// Force la route à être dynamique pour s'assurer qu'elle est exécutée côté serveur à chaque appel
+export const dynamic = 'force-dynamic';
+
 // --- Début de la logique de Firebase Admin ---
 
 // Schéma de validation pour la clé de compte de service, utile pour le parsing
@@ -29,6 +32,9 @@ function initializeAdminApp() {
     }
 
     const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+    
+    // Log pour le débogage
+    console.log('Contenu de FIREBASE_SERVICE_ACCOUNT_JSON:', serviceAccountJson ? 'Variable présente' : 'Variable ABSENTE');
 
     if (!serviceAccountJson) {
         // Cette erreur se produira au moment de l'exécution si la variable d'environnement n'est pas définie sur Vercel
@@ -50,7 +56,7 @@ function initializeAdminApp() {
         }
         // Ne pas logger l'erreur si elle indique simplement que l'app existe déjà
         if (error.code !== 'app/duplicate-app') {
-            console.error("Erreur d'initialisation de Firebase Admin:", error.message);
+            console.error("Erreur d'initialisation de Firebase Admin:", error);
             throw new Error("Impossible d'initialiser le SDK Firebase Admin.");
         }
     }
@@ -97,10 +103,13 @@ async function logApiRequest(db: admin.firestore.Firestore, request: NextRequest
 
 
 export async function POST(request: NextRequest) {
+  console.log('Requête POST reçue sur /api/validate-student');
   let db;
   let responseBody;
   let statusCode;
   const requestBody = await request.json();
+  console.log('Corps de la requête:', requestBody);
+
 
   try {
     db = initializeAdminApp();
@@ -109,6 +118,7 @@ export async function POST(request: NextRequest) {
     if (!validationResult.success) {
       statusCode = 400;
       responseBody = { error: 'Données invalides', details: validationResult.error.flatten() };
+      console.log('Réponse envoyée (400):', responseBody);
       return NextResponse.json(responseBody, { status: statusCode });
     }
 
@@ -120,6 +130,7 @@ export async function POST(request: NextRequest) {
     if (snapshot.empty) {
       statusCode = 404;
       responseBody = { error: 'Étudiant non trouvé avec ce matricule' };
+      console.log('Réponse envoyée (404):', responseBody);
       return NextResponse.json(responseBody, { status: statusCode });
     }
 
@@ -132,12 +143,14 @@ export async function POST(request: NextRequest) {
     if (studentData.firstName !== formattedRequestFirstName || studentData.lastName !== formattedRequestLastName) {
       statusCode = 403;
       responseBody = { error: 'Le nom ou prénom ne correspond pas au matricule' };
+      console.log('Réponse envoyée (403):', responseBody);
       return NextResponse.json(responseBody, { status: statusCode });
     }
     
     if (studentData.status === 'pending_payment' || studentData.status === 'inactive') {
         statusCode = 402;
         responseBody = { error: 'Le statut de l\'étudiant ne permet pas l\'inscription. Paiement en attente ou inactif.' };
+        console.log('Réponse envoyée (402):', responseBody);
         return NextResponse.json(responseBody, { status: statusCode });
     }
 
@@ -146,11 +159,14 @@ export async function POST(request: NextRequest) {
       message: 'Étudiant validé avec succès',
       classId: studentData.classId,
     };
+    console.log('Réponse envoyée (200):', responseBody);
     return NextResponse.json(responseBody, { status: statusCode });
 
   } catch (error) {
+    console.error('Erreur interne du serveur:', error);
     statusCode = 500;
     responseBody = { error: 'Erreur interne du serveur', details: error instanceof Error ? error.message : 'Erreur inconnue' };
+    console.log('Réponse envoyée (500):', responseBody);
     return NextResponse.json(responseBody, { status: statusCode });
   } finally {
       if(db && responseBody) {
