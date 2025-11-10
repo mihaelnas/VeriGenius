@@ -7,8 +7,8 @@ import { useUser, useAuth } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, PlusCircle, UserX, UserPlus, Edit, Trash2, LogOut, Loader2 } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { MoreHorizontal, PlusCircle, UserPlus, Edit, Trash2, LogOut, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { StudentForm, StudentFormData } from '@/components/StudentForm';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
@@ -55,7 +55,7 @@ export default function Home() {
         if (user) {
             fetchStudents();
         }
-    }, [user]);
+    }, [user, toast]);
 
     const handleFormSubmit = async (data: StudentFormData) => {
         const method = selectedStudent ? 'PUT' : 'POST';
@@ -114,7 +114,9 @@ export default function Home() {
     };
     
     const handleLogout = async () => {
-        await auth.signOut();
+        if(auth) {
+            await auth.signOut();
+        }
         router.push('/login');
     };
 
@@ -128,18 +130,35 @@ export default function Home() {
         setIsFormOpen(true);
     };
 
-    const getStatusVariant = (status: string) => {
+    const getStatusVariant = (status: Student['status']): 'default' | 'secondary' | 'outline' | 'destructive' => {
         switch (status) {
-            case 'active':
-                return 'default';
+            case 'fully_paid':
+                return 'default'; // Greenish in some themes
+            case 'partially_paid':
+                return 'secondary'; // Bluish/Yellowish
+            case 'pending_payment':
+                return 'outline'; // Greyish
             case 'inactive':
-                return 'secondary';
-            case 'pending':
-                return 'outline';
+                return 'destructive';
             default:
                 return 'secondary';
         }
     };
+
+    const getStatusText = (status: Student['status']): string => {
+        switch (status) {
+            case 'fully_paid':
+                return 'Paiement complet';
+            case 'partially_paid':
+                return 'Paiement partiel';
+            case 'pending_payment':
+                return 'En attente de paiement';
+            case 'inactive':
+                return 'Inactif';
+            default:
+                return status;
+        }
+    }
     
     if (isUserLoading || !user) {
         return (
@@ -190,13 +209,14 @@ export default function Home() {
                                     <TableHead>Matricule</TableHead>
                                     <TableHead>Filière</TableHead>
                                     <TableHead>Niveau</TableHead>
+                                    <TableHead>Statut</TableHead>
                                     <TableHead className="text-right">Actions</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {isLoadingData ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center">
+                                        <TableCell colSpan={6} className="text-center">
                                             <div className="flex justify-center items-center p-8">
                                                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
                                             </div>
@@ -204,7 +224,7 @@ export default function Home() {
                                     </TableRow>
                                 ) : students.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center">Aucun étudiant trouvé.</TableCell>
+                                        <TableCell colSpan={6} className="text-center">Aucun étudiant trouvé.</TableCell>
                                     </TableRow>
                                 ) : (
                                     students.map((student) => (
@@ -213,6 +233,11 @@ export default function Home() {
                                             <TableCell>{student.studentId}</TableCell>
                                             <TableCell>{student.fieldOfStudy}</TableCell>
                                             <TableCell>{student.level}</TableCell>
+                                            <TableCell>
+                                                <Badge variant={getStatusVariant(student.status)}>
+                                                    {getStatusText(student.status)}
+                                                </Badge>
+                                            </TableCell>
                                             <TableCell className="text-right">
                                                 <AlertDialog>
                                                     <DropdownMenu>

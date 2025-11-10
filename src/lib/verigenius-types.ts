@@ -12,7 +12,7 @@ export const studentValidationSchema = z.object({
 // Schema for creating/updating a student (includes status)
 export const studentCreationSchema = studentValidationSchema.extend({
   id: z.string().optional(),
-  status: z.enum(["pending", "active", "inactive"]).default('pending'),
+  status: z.enum(["pending_payment", "partially_paid", "fully_paid", "inactive"]).default('pending_payment'),
   classId: z.string().min(1, "L'ID de la classe est requis"),
 });
 
@@ -28,7 +28,7 @@ export interface Student {
   studentId: string; // matricule
   level: string;
   fieldOfStudy: string;
-  status: 'pending' | 'active' | 'inactive';
+  status: 'pending_payment' | 'partially_paid' | 'fully_paid' | 'inactive';
   classId: string; // Reference to the Class document
 }
 

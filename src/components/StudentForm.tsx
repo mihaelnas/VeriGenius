@@ -49,7 +49,7 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
       studentId: '',
       level: '',
       fieldOfStudy: '',
-      status: 'pending',
+      status: 'pending_payment',
       classId: '',
     },
   });
@@ -64,7 +64,7 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
         studentId: '',
         level: '',
         fieldOfStudy: '',
-        status: 'pending',
+        status: 'pending_payment',
         classId: '',
       });
     }
@@ -145,30 +145,29 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
                 </FormItem>
               )}
             />
-            {student && (
-                <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Statut</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Sélectionner un statut" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="pending">En attente</SelectItem>
-                        <SelectItem value="active">Actif</SelectItem>
-                        <SelectItem value="inactive">Inactif</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Statut</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sélectionner un statut" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="pending_payment">En attente de paiement</SelectItem>
+                      <SelectItem value="partially_paid">Paiement partiel</SelectItem>
+                      <SelectItem value="fully_paid">Paiement complet</SelectItem>
+                      <SelectItem value="inactive">Inactif</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="classId"
