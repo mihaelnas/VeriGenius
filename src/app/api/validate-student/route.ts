@@ -1,20 +1,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
-import { z } from 'zod';
 import admin from 'firebase-admin';
 import { studentValidationSchema } from '@/lib/verigenius-types';
 import type { Student } from '@/lib/verigenius-types';
 
-// Schéma de validation pour les variables d'environnement
-const envSchema = z.object({
-  FIREBASE_PROJECT_ID: z.string().min(1, "La variable d'environnement FIREBASE_PROJECT_ID est requise."),
-  FIREBASE_CLIENT_EMAIL: z.string().email("La variable d'environnement FIREBASE_CLIENT_EMAIL est invalide."),
-  FIREBASE_PRIVATE_KEY: z.string().min(1, "La variable d'environnement FIREBASE_PRIVATE_KEY est requise."),
-});
-
 /**
  * Initialise l'application Firebase Admin si elle ne l'est pas déjà.
- * Utilise des variables d'environnement distinctes pour plus de fiabilité sur Vercel.
+ * Utilise des variables d'environnement individuelles pour une meilleure fiabilité sur Vercel.
  * @returns {admin.firestore.Firestore} L'instance de la base de données Firestore.
  */
 function initializeAdminApp() {
@@ -22,21 +14,19 @@ function initializeAdminApp() {
     return admin.firestore();
   }
 
-  const envValidation = envSchema.safeParse(process.env);
-
-  if (!envValidation.success) {
-    console.error("CRITICAL: Variables d'environnement Firebase manquantes ou invalides.", envValidation.error.flatten());
-    throw new Error("Configuration du serveur incomplète. Assurez-vous que FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, et FIREBASE_PRIVATE_KEY sont définies.");
+  // Vérification manuelle des variables d'environnement
+  const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = process.env;
+  if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
+      console.error("CRITICAL: Une ou plusieurs variables d'environnement Firebase sont manquantes.");
+      throw new Error("Configuration du serveur incomplète. Assurez-vous que FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, et FIREBASE_PRIVATE_KEY sont définies.");
   }
-  
-  const { FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY } = envValidation.data;
 
   try {
     admin.initializeApp({
       credential: admin.credential.cert({
         projectId: FIREBASE_PROJECT_ID,
         clientEmail: FIREBASE_CLIENT_EMAIL,
-        // Remplace les séquences d'échappement \n par de vrais sauts de ligne
+        // Remplace les séquences d'échappement \n par de vrais sauts de ligne pour Vercel
         privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
       }),
     });
@@ -62,13 +52,14 @@ async function logApiRequest(db: admin.firestore.Firestore, requestBody: any, re
         await db.collection('request-logs').add(logEntry);
     } catch (error) {
         console.error("Erreur lors de la journalisation de la requête API:", error);
+        // Ne pas propager l'erreur de journalisation pour ne pas masquer l'erreur originale
     }
 }
 
 export async function POST(request: NextRequest) {
     const clientIp = request.ip;
     let db: admin.firestore.Firestore;
-    let requestBody: any;
+    let requestBody: any = {};
 
     try {
         db = initializeAdminApp();
@@ -83,6 +74,7 @@ export async function POST(request: NextRequest) {
         requestBody = await request.json();
     } catch (error) {
         const response = { success: false, message: "Le corps de la requête est invalide ou n'est pas du JSON." };
+        // Journaliser l'échec de lecture du JSON
         await logApiRequest(db, {error: "Invalid JSON body"}, response, 400, clientIp);
         return NextResponse.json(response, { status: 400 });
     }
@@ -148,6 +140,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
         console.error("Erreur lors de la validation de l'étudiant:", error);
         const errorResponse = { success: false, message: "Erreur interne du serveur lors de la validation." };
+        // Journaliser l'erreur serveur
         await logApiRequest(db, requestBody, errorResponse, 500, clientIp);
         return NextResponse.json(errorResponse, { status: 500 });
     }
