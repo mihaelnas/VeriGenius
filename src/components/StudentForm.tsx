@@ -145,7 +145,8 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
                 </FormItem>
               )}
             />
-             <FormField
+            {student && (
+                <FormField
                 control={form.control}
                 name="status"
                 render={({ field }) => (
@@ -167,6 +168,7 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
                   </FormItem>
                 )}
               />
+            )}
             <FormField
               control={form.control}
               name="classId"

@@ -12,7 +12,7 @@ export const studentValidationSchema = z.object({
 // Schema for creating/updating a student (includes status)
 export const studentCreationSchema = studentValidationSchema.extend({
   id: z.string().optional(),
-  status: z.enum(["pending", "active", "inactive"]),
+  status: z.enum(["pending", "active", "inactive"]).default('pending'),
   classId: z.string().min(1, "L'ID de la classe est requis"),
 });
 
