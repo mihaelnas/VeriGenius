@@ -25,8 +25,11 @@ let adminDb: admin.firestore.Firestore | null = null;
 
 // Fonction d'initialisation "paresseuse"
 function initializeAdminApp() {
+    // Ne rien faire si l'application est déjà initialisée
     if (admin.apps.length > 0) {
-        adminDb = admin.firestore();
+        if (!adminDb) {
+            adminDb = admin.firestore();
+        }
         return adminDb;
     }
 
@@ -38,6 +41,7 @@ function initializeAdminApp() {
 
     try {
         const serviceAccount = JSON.parse(serviceAccountJson);
+        // Valider le format du JSON avant de l'utiliser
         const validation = serviceAccountSchema.safeParse(serviceAccount);
         if (!validation.success) {
             console.error("CRITICAL: Le format du JSON dans FIREBASE_SERVICE_ACCOUNT_JSON est invalide.", validation.error.flatten());
@@ -52,17 +56,18 @@ function initializeAdminApp() {
         return adminDb;
     } catch (error: any) {
         console.error("CRITICAL: Erreur lors de l'initialisation de Firebase Admin:", error.message);
+        if (error.code === 'app/duplicate-app') {
+             if (!adminDb) {
+                adminDb = admin.firestore();
+            }
+            return adminDb;
+        }
         return null;
     }
 }
 
 
-async function logApiRequest(db: admin.firestore.Firestore | null, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
-    if (!db) {
-      console.error("Tentative de log, mais la base de données Admin n'est pas disponible.");
-      return;
-    };
-
+async function logApiRequest(db: admin.firestore.Firestore, requestBody: any, responseBody: any, statusCode: number, clientIp: string | null) {
     try {
         const logEntry = {
             timestamp: new Date().toISOString(),
@@ -81,13 +86,13 @@ async function logApiRequest(db: admin.firestore.Firestore | null, requestBody: 
 export async function POST(request: NextRequest) {
     const clientIp = request.ip;
     let requestBody: any;
-    
-    // Initialisation paresseuse de Firebase Admin si ce n'est pas déjà fait
-    const db = adminDb ?? initializeAdminApp();
+
+    // Initialisation paresseuse de Firebase Admin au début de la requête
+    const db = initializeAdminApp();
 
     if (!db) {
         const response = { success: false, message: "Erreur critique du serveur: La base de données n'est pas initialisée." };
-        // Le log ne peut pas fonctionner si la DB n'est pas initialisée, mais on maintient la structure.
+        // Le log ne peut pas fonctionner ici car la DB n'est pas là, mais c'est une erreur critique qui doit être résolue via les logs serveur.
         return NextResponse.json(response, { status: 500 });
     }
 
