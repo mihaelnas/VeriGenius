@@ -15,6 +15,14 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from '@/components/ui/badge';
 import type { Student } from '@/lib/verigenius-types';
 
+// Helper function to capitalize the first letter of each word
+const capitalize = (str: string) => {
+    return str
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+        .join(' ');
+};
+
 export default function Home() {
     const [students, setStudents] = useState<(Student & { id: string })[]>([]);
     const [isLoadingData, setIsLoadingData] = useState(true);
@@ -61,11 +69,18 @@ export default function Home() {
         const method = selectedStudent ? 'PUT' : 'POST';
         const url = selectedStudent ? `/api/students/${selectedStudent.id}` : '/api/students';
 
+        // Apply formatting before sending
+        const formattedData = {
+            ...data,
+            firstName: capitalize(data.firstName),
+            lastName: data.lastName.toUpperCase(),
+        };
+
         try {
             const response = await fetch(url, {
                 method,
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data),
+                body: JSON.stringify(formattedData),
             });
 
             if (!response.ok) {

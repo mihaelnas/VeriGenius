@@ -1,12 +1,15 @@
 import { z } from 'zod';
 
+export const SupportedFieldOfStudy = z.enum(["IG", "GB", "ASR", "OCC", "GID"]);
+export const SupportedLevel = z.enum(["L1", "L2", "L3", "M1", "M2"]);
+
 // Schema for student data received in the API request
 export const studentValidationSchema = z.object({
   studentId: z.string().min(1, 'Le matricule de l\'étudiant est requis'),
   firstName: z.string().min(1, 'Le prénom de l\'étudiant est requis'),
   lastName: z.string().min(1, 'Le nom de l\'étudiant est requis'),
-  level: z.string().min(1, 'Le niveau de l\'étudiant est requis'),
-  fieldOfStudy: z.string().min(1, 'La filière est requise'),
+  level: SupportedLevel,
+  fieldOfStudy: SupportedFieldOfStudy,
 });
 
 // Schema for creating/updating a student (includes status)
@@ -26,8 +29,8 @@ export interface Student {
   firstName: string;
   lastName: string;
   studentId: string; // matricule
-  level: string;
-  fieldOfStudy: string;
+  level: z.infer<typeof SupportedLevel>;
+  fieldOfStudy: z.infer<typeof SupportedFieldOfStudy>;
   status: 'pending_payment' | 'partially_paid' | 'fully_paid' | 'inactive';
   classId: string; // Reference to the Class document
 }

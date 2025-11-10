@@ -27,7 +27,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { studentCreationSchema, type Student } from '@/lib/verigenius-types';
+import { studentCreationSchema, type Student, SupportedFieldOfStudy, SupportedLevel } from '@/lib/verigenius-types';
 import type { z } from 'zod';
 import { useEffect } from 'react';
 
@@ -47,8 +47,8 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
       firstName: '',
       lastName: '',
       studentId: '',
-      level: '',
-      fieldOfStudy: '',
+      level: 'L1',
+      fieldOfStudy: 'IG',
       status: 'pending_payment',
       classId: '',
     },
@@ -62,8 +62,8 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
         firstName: '',
         lastName: '',
         studentId: '',
-        level: '',
-        fieldOfStudy: '',
+        level: 'L1',
+        fieldOfStudy: 'IG',
         status: 'pending_payment',
         classId: '',
       });
@@ -119,32 +119,52 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="fieldOfStudy"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Filière</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Informatique de Gestion" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-             <FormField
-              control={form.control}
-              name="level"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Niveau</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Licence 3" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="fieldOfStudy"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Filière</FormLabel>
+                     <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Sélectionner une filière" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {SupportedFieldOfStudy.options.map(option => (
+                            <SelectItem key={option} value={option}>{option}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+               <FormField
+                control={form.control}
+                name="level"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Niveau</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Sélectionner un niveau" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                           {SupportedLevel.options.map(option => (
+                            <SelectItem key={option} value={option}>{option}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
             <FormField
               control={form.control}
               name="status"
