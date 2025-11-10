@@ -86,39 +86,13 @@
     ]
   },
   "firestore": {
-    "structure": [
-      {
-        "path": "/students/{studentId}",
-        "definition": {
-          "entityName": "Student",
-          "schema": {
-            "$ref": "#/backend/entities/Student"
-          },
-          "description": "Stores student profile information. The document ID is a unique ID. Includes fields: firstName, lastName, studentId (matricule), level, fieldOfStudy, status, and classId.",
-          "params": [
-            {
-              "name": "studentId",
-              "description": "The unique identifier of the student document."
-            }
-          ]
-        }
-      },
-      {
-        "path": "/classes/{classId}",
-        "definition": {
-          "entityName": "Class",
-          "schema": {
-            "$ref": "#/backend/entities/Class"
-          },
-          "description": "Stores class information, including the class name, level, field of study, and a list of enrolled student document IDs. The studentId in the student document references this document.",
-          "params": [
-            {
-              "name": "classId",
-              "description": "The unique identifier of the class."
-            }
-          ]
-        }
-      }
-    ]
+    "/students/{studentId}": {
+      "schema": { "$ref": "#/entities/Student" },
+      "description": "Stores student profile information. The document ID is a unique ID. Includes fields: firstName, lastName, studentId (matricule), level, fieldOfStudy, status, and classId."
+    },
+    "/classes/{classId}": {
+      "schema": { "$ref": "#/entities/Class" },
+      "description": "Stores class information, including the class name, level, field of study, and a list of enrolled student document IDs. The studentId in the student document references this document."
+    }
   }
 }
