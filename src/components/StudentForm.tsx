@@ -50,25 +50,49 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
       level: 'L1',
       fieldOfStudy: 'IG',
       status: 'pending_payment',
-      classId: '',
+      classId: 'L1-IG-G',
     },
   });
 
+  const levelValue = form.watch('level');
+  const fieldOfStudyValue = form.watch('fieldOfStudy');
+  const classIdValue = form.watch('classId');
+
   useEffect(() => {
-    if (student) {
-      form.reset(student);
-    } else {
-      form.reset({
-        firstName: '',
-        lastName: '',
-        studentId: '',
-        level: 'L1',
-        fieldOfStudy: 'IG',
-        status: 'pending_payment',
-        classId: '',
-      });
+    if (isOpen) {
+        if (student) {
+            form.reset(student);
+        } else {
+            // Set default classId when opening for creation
+            form.reset({
+                firstName: '',
+                lastName: '',
+                studentId: '',
+                level: 'L1',
+                fieldOfStudy: 'IG',
+                status: 'pending_payment',
+                classId: 'L1-IG-G',
+            });
+        }
     }
   }, [student, form, isOpen]);
+
+
+  useEffect(() => {
+    // This effect runs when level or fieldOfStudy changes
+    if (!levelValue || !fieldOfStudyValue) return;
+
+    // Preserve the group part if it exists (e.g., "-G1")
+    const groupRegex = /-G\d*$/;
+    const existingGroup = groupRegex.exec(classIdValue);
+    const groupSuffix = existingGroup ? existingGroup[0] : '-G';
+
+    const newClassId = `${levelValue}-${fieldOfStudyValue}${groupSuffix}`;
+
+    if (newClassId !== classIdValue) {
+        form.setValue('classId', newClassId, { shouldValidate: true });
+    }
+  }, [levelValue, fieldOfStudyValue, form, classIdValue]);
 
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -126,7 +150,7 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Filière</FormLabel>
-                     <Select onValueChange={field.onChange} defaultValue={field.value}>
+                     <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Sélectionner une filière" />
@@ -148,7 +172,7 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Niveau</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Sélectionner un niveau" />
@@ -171,10 +195,10 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Statut</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} value={field.value}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Sélectionner un statut" />
+                        <SelectValue placeholder="Sélectionter un statut" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -195,7 +219,7 @@ export function StudentForm({ isOpen, onOpenChange, onSubmit, student }: Student
                 <FormItem>
                   <FormLabel>ID de la Classe</FormLabel>
                   <FormControl>
-                    <Input placeholder="L3-IG-G1" {...field} />
+                    <Input placeholder="L1-IG-G1" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
