@@ -4,9 +4,9 @@ import admin from 'firebase-admin';
 import { z } from 'zod';
 import 'dotenv/config';
 
-// --- Début de l'Initialisation de Firebase Admin ---
+// --- Début de la logique de Firebase Admin ---
 
-// Schéma de validation pour la clé de compte de service
+// Schéma de validation pour la clé de compte de service, utile pour le parsing
 const serviceAccountSchema = z.object({
   type: z.string(),
   project_id: z.string(),
@@ -20,25 +20,26 @@ const serviceAccountSchema = z.object({
   client_x509_cert_url: z.string(),
 });
 
-// Fonction pour initialiser l'application admin en toute sécurité
-function initializeAdminApp() {
-    // Évite la réinitialisation en développement
-    if (admin.apps.length > 0) {
-        return admin.app();
-    }
-
+// Cette fonction sera maintenant appelée UNIQUEMENT à l'intérieur de la fonction POST
+function getAdminDb() {
     const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
     if (!serviceAccountJson) {
+        // Cette erreur ne se produira qu'au moment de l'exécution si .env est manquant, pas au build.
         throw new Error('La variable d\'environnement FIREBASE_SERVICE_ACCOUNT_JSON doit être définie dans le fichier .env.');
+    }
+
+    // Évite la réinitialisation si l'app est déjà initialisée (utile en dev)
+    if (admin.apps.length > 0) {
+        return admin.firestore();
     }
 
     try {
         const serviceAccount = JSON.parse(serviceAccountJson);
-        // Valider le JSON avec Zod
+        // Valider le JSON avec Zod pour plus de sécurité
         serviceAccountSchema.parse(serviceAccount);
         
-        return admin.initializeApp({
+        admin.initializeApp({
             credential: admin.credential.cert(serviceAccount),
         });
     } catch (error: any) {
@@ -49,24 +50,22 @@ function initializeAdminApp() {
         console.error("Erreur d'initialisation de Firebase Admin:", error.message);
         throw new Error("Impossible d'initialiser le SDK Firebase Admin. Vérifiez le contenu du fichier .env.");
     }
+    
+    return admin.firestore();
 }
 
-// Initialisez l'application et obtenez la base de données
-const adminApp = initializeAdminApp();
-const adminDb = admin.firestore();
-
-// --- Fin de l'Initialisation ---
+// --- Fin de la logique Firebase Admin ---
 
 
-// Schéma de validation pour la requête POST
+// Schéma de validation pour le corps de la requête POST
 const studentValidationSchema = z.object({
-  studentId: z.string().regex(/^\d{4} [A-Z]-[A-Z]$/, "Le format du matricule doit être '1234 A-B'."),
+  studentId: z.string().regex(/^\d{4}\s[A-Z]-[A-Z]$/, "Le format du matricule doit être '1234 A-B'."),
   firstName: z.string().min(1, 'Le prénom de l\'étudiant est requis'),
   lastName: z.string().min(1, 'Le nom de l\'étudiant est requis'),
 });
 
 
-// Helper function to capitalize the first letter of each word
+// Helper pour mettre en majuscule la première lettre de chaque mot
 const capitalize = (str: string) => {
     if (!str) return '';
     return str
@@ -77,6 +76,9 @@ const capitalize = (str: string) => {
 
 export async function POST(request: Request) {
   try {
+    // L'initialisation se fait ici, au moment de l'appel !
+    const adminDb = getAdminDb();
+
     const body = await request.json();
     const validationResult = studentValidationSchema.safeParse(body);
 
@@ -96,7 +98,7 @@ export async function POST(request: Request) {
     const studentDoc = snapshot.docs[0];
     const studentData = studentDoc.data();
 
-    // Normalize names for comparison
+    // Normalisation des noms pour la comparaison
     const formattedRequestFirstName = capitalize(firstName);
     const formattedRequestLastName = lastName.toUpperCase();
 
@@ -108,7 +110,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Le statut de l\'étudiant ne permet pas l\'inscription. Paiement en attente ou inactif.' }, { status: 402 });
     }
 
-    // If validation is successful
+    // Si la validation réussit
     return NextResponse.json({
       message: 'Étudiant validé avec succès',
       classId: studentData.classId,
