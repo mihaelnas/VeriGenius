@@ -1,6 +1,5 @@
 
 import * as admin from 'firebase-admin';
-import 'dotenv/config';
 
 // Ce fichier gère l'initialisation du SDK Admin de Firebase pour un usage côté serveur (API routes).
 // Il est crucial pour les opérations sécurisées qui nécessitent des privilèges élevés.
@@ -15,22 +14,33 @@ interface FirebaseServiceAccount {
   clientEmail: string;
 }
 
-// Récupération des identifiants depuis les variables d'environnement.
-// Assurez-vous que ces variables sont définies dans votre environnement d'hébergement (Vercel).
-const serviceAccount: FirebaseServiceAccount = {
-  projectId: process.env.FIREBASE_PROJECT_ID!,
-  privateKey: process.env.FIREBASE_PRIVATE_KEY!.replace(/\\n/g, '\n'), // Remplace les échappements de nouvelle ligne
-  clientEmail: process.env.FIREBASE_CLIENT_EMAIL!,
-};
+function getServiceAccount(): FirebaseServiceAccount {
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY;
+    if (!privateKey) {
+        throw new Error('La variable d\'environnement FIREBASE_PRIVATE_KEY est manquante.');
+    }
+
+    return {
+        projectId: process.env.FIREBASE_PROJECT_ID!,
+        privateKey: privateKey.replace(/\\n/g, '\n'), // Remplace les échappements de nouvelle ligne
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL!,
+    };
+}
+
 
 // Initialisation de l'application Firebase Admin.
 // On vérifie si elle a déjà été initialisée pour éviter les erreurs de "ré-initialisation".
 if (!admin.apps.length) {
   try {
-    admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
-    });
-    console.log('Firebase Admin SDK initialized successfully.');
+    const serviceAccount = getServiceAccount();
+    if (serviceAccount.projectId && serviceAccount.clientEmail) {
+        admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+        });
+        console.log('Firebase Admin SDK initialized successfully.');
+    } else {
+        console.warn('Firebase Admin SDK not initialized because environment variables are missing.');
+    }
   } catch (error: any) {
     console.error('Firebase Admin SDK initialization error:', error.stack);
   }
