@@ -7,16 +7,18 @@ import { useUser, useFirestore, useCollection } from '@/firebase';
 import { collection, doc, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { MoreHorizontal, PlusCircle, Edit, Trash2, Loader2 } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Edit, Trash2, Loader2, Send } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { StudentForm, StudentFormData } from '@/components/StudentForm';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from '@/components/ui/badge';
-import type { Student } from '@/lib/verigenius-types';
+import type { Student, StudentValidationPayload } from '@/lib/verigenius-types';
 import { useMemoFirebase } from '@/firebase/provider';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 
 // Helper function to capitalize the first letter of each word
@@ -35,6 +37,14 @@ export default function Home() {
     const { user, isUserLoading } = useUser();
     const router = useRouter();
     const firestore = useFirestore();
+
+    // State for the validation test form
+    const [validationData, setValidationData] = useState<StudentValidationPayload>({
+        studentId: '',
+        firstName: '',
+        lastName: '',
+    });
+    const [isValiding, setIsValidating] = useState(false);
 
     // Redirection si l'utilisateur n'est pas connecté
     useEffect(() => {
@@ -99,6 +109,46 @@ export default function Home() {
             });
         }
     };
+    
+    const handleValidateStudent = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setIsValidating(true);
+        console.log("Envoi de la requête vers l'API de validation...", validationData);
+        try {
+            const response = await fetch('/api/validate-student', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(validationData),
+            });
+            
+            const result = await response.json();
+            console.log("Réponse de l'API de validation reçue :", result);
+
+            if (result.success) {
+                toast({
+                    title: "Validation Réussie",
+                    description: `Étudiant ${result.student.firstName} trouvé. Classe: ${result.student.classId}`,
+                });
+            } else {
+                 toast({
+                    variant: "destructive",
+                    title: "Échec de la validation",
+                    description: result.message || "Les informations ne correspondent pas ou l'étudiant est introuvable.",
+                });
+            }
+
+        } catch (err) {
+             toast({
+                variant: "destructive",
+                title: "Erreur de communication",
+                description: "Impossible de contacter l'API de validation.",
+            });
+        } finally {
+            setIsValidating(false);
+        }
+    }
 
     const handleDeleteStudent = async (studentId: string) => {
         if (!firestore) return;
@@ -168,8 +218,57 @@ export default function Home() {
     }
 
     return (
-        <div className="flex flex-col flex-1 p-4 md:p-6">
-            <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col flex-1 p-4 md:p-6 space-y-6">
+            <Card className="shadow-lg">
+                <CardHeader>
+                    <CardTitle>Tester l'API de Validation</CardTitle>
+                    <CardDescription>
+                        Entrez les informations d'un étudiant pour tester la réponse de l'API.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                    <form onSubmit={handleValidateStudent} className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="validate-studentId">Matricule</Label>
+                                <Input 
+                                    id="validate-studentId" 
+                                    placeholder="1815 H-F" 
+                                    value={validationData.studentId}
+                                    onChange={(e) => setValidationData({...validationData, studentId: e.target.value})}
+                                    required
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="validate-firstName">Prénom</Label>
+                                <Input 
+                                    id="validate-firstName" 
+                                    placeholder="Mihael" 
+                                    value={validationData.firstName}
+                                    onChange={(e) => setValidationData({...validationData, firstName: e.target.value})}
+                                    required
+                                />
+                            </div>
+                             <div className="space-y-2">
+                                <Label htmlFor="validate-lastName">Nom</Label>
+                                <Input 
+                                    id="validate-lastName" 
+                                    placeholder="NAS" 
+                                    value={validationData.lastName}
+                                    onChange={(e) => setValidationData({...validationData, lastName: e.target.value})}
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <Button type="submit" disabled={isValiding}>
+                            {isValiding ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Send className="mr-2 h-4 w-4" />}
+                            Valider
+                        </Button>
+                    </form>
+                </CardContent>
+            </Card>
+
+            <div className="flex items-center justify-between">
                 <h1 className="text-2xl font-bold">Gestion des Étudiants</h1>
                 <Button onClick={openCreateForm}>
                     <PlusCircle className="mr-2 h-4 w-4" /> Ajouter un étudiant
@@ -270,3 +369,5 @@ export default function Home() {
         </div>
     );
 }
+
+    
