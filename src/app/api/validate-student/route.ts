@@ -6,7 +6,6 @@ import { getFirestore, collection, query, where, getDocs, Firestore } from 'fire
 import { firebaseConfig } from '@/firebase/config';
 
 // --- INITIALISATION STABLE DU SDK CLIENT ---
-// https://firebase.google.com/docs/web/setup
 let firebaseApp: FirebaseApp;
 let db: Firestore;
 
@@ -16,6 +15,18 @@ if (getApps().length === 0) {
     firebaseApp = getApp();
 }
 db = getFirestore(firebaseApp);
+
+// Headers pour la gestion du CORS
+const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
+
+export async function OPTIONS(request: NextRequest) {
+    return NextResponse.json({}, { headers: corsHeaders });
+}
+
 
 export async function POST(request: NextRequest) {
     try {
@@ -28,13 +39,12 @@ export async function POST(request: NextRequest) {
                 success: false, 
                 message: "Invalid validation data.", 
                 errors: validation.error.flatten() 
-            }, { status: 400 });
+            }, { status: 400, headers: corsHeaders });
         }
 
         const { studentId, firstName, lastName } = validation.data;
 
         // 2. Exécution de la requête
-        // Note: Firestore queries are case-sensitive. We will perform a case-insensitive check after fetching.
         const studentsRef = collection(db, 'students');
         const q = query(studentsRef, where('studentId', '==', studentId.toUpperCase()));
         const querySnapshot = await getDocs(q);
@@ -44,7 +54,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 success: false,
                 message: `Student with ID '${studentId}' not found.`,
-            }, { status: 404 });
+            }, { status: 404, headers: corsHeaders });
         }
 
         const studentDoc = querySnapshot.docs[0];
@@ -59,7 +69,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 success: false,
                 message: "Student ID, first name, or last name does not match.",
-            }, { status: 403 });
+            }, { status: 403, headers: corsHeaders });
         }
         
         // Vérification du statut
@@ -67,7 +77,7 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
                 success: false,
                 message: "Student account is inactive.",
-            }, { status: 403 });
+            }, { status: 403, headers: corsHeaders });
         }
 
         // Si tout est correct, renvoyer les données de l'étudiant, y compris la classe
@@ -78,14 +88,14 @@ export async function POST(request: NextRequest) {
             fieldOfStudy: studentData.fieldOfStudy,
             level: studentData.level,
             status: studentData.status,
-            classId: studentData.classId // Ajout de la classe
+            classId: studentData.classId
         };
 
         return NextResponse.json({
             success: true,
             message: "Validation successful.",
             student: responsePayload
-        }, { status: 200 });
+        }, { status: 200, headers: corsHeaders });
 
     } catch (error: any) {
         console.error("Internal API Error:", error);
@@ -93,6 +103,6 @@ export async function POST(request: NextRequest) {
             success: false, 
             message: "Internal server error.", 
             error: error.message 
-        }, { status: 500 });
+        }, { status: 500, headers: corsHeaders });
     }
 }
