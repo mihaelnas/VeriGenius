@@ -1,22 +1,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { studentValidationSchema, type Student } from '@/lib/verigenius-types';
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getFirestore, collection, query, where, getDocs, Firestore } from 'firebase/firestore';
-import { firebaseConfig } from '@/firebase/config';
+import { adminDb } from '@/firebase/admin';
 
-// --- INITIALISATION STABLE DU SDK CLIENT ---
-let firebaseApp: FirebaseApp;
-let db: Firestore;
-
-if (getApps().length === 0) {
-    firebaseApp = initializeApp(firebaseConfig);
-} else {
-    firebaseApp = getApp();
-}
-db = getFirestore(firebaseApp);
-
-// Headers pour la gestion du CORS
+// Headers pour la gestion du CORS, au cas où vous en auriez besoin pour un client web à l'avenir
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -27,12 +14,11 @@ export async function OPTIONS(request: NextRequest) {
     return NextResponse.json({}, { headers: corsHeaders });
 }
 
-
 export async function POST(request: NextRequest) {
     try {
         const requestBody = await request.json();
 
-        // 1. Validation des données d'entrée
+        // 1. Validation des données d'entrée avec Zod
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
             return NextResponse.json({ 
@@ -44,10 +30,9 @@ export async function POST(request: NextRequest) {
 
         const { studentId, firstName, lastName } = validation.data;
 
-        // 2. Exécution de la requête
-        const studentsRef = collection(db, 'students');
-        const q = query(studentsRef, where('studentId', '==', studentId.toUpperCase()));
-        const querySnapshot = await getDocs(q);
+        // 2. Exécution de la requête avec le SDK Admin
+        const studentsRef = adminDb.collection('students');
+        const querySnapshot = await studentsRef.where('studentId', '==', studentId.toUpperCase()).limit(1).get();
 
         // 3. Traitement des résultats
         if (querySnapshot.empty) {
@@ -60,7 +45,7 @@ export async function POST(request: NextRequest) {
         const studentDoc = querySnapshot.docs[0];
         const studentData = studentDoc.data() as Omit<Student, 'id'>;
 
-        // Vérification du matricule, nom et prénom (insensible à la casse)
+        // 4. Comparaison stricte et insensible à la casse
         if (
             studentData.studentId.toLowerCase() !== studentId.toLowerCase() ||
             studentData.firstName.toLowerCase() !== firstName.toLowerCase() || 
@@ -72,7 +57,7 @@ export async function POST(request: NextRequest) {
             }, { status: 403, headers: corsHeaders });
         }
         
-        // Vérification du statut
+        // 5. Vérification du statut de l'étudiant
         if (studentData.status === 'inactive') {
             return NextResponse.json({
                 success: false,
@@ -80,7 +65,7 @@ export async function POST(request: NextRequest) {
             }, { status: 403, headers: corsHeaders });
         }
 
-        // Si tout est correct, renvoyer les données de l'étudiant, y compris la classe
+        // 6. Si tout est correct, renvoyer la charge utile de succès
         const responsePayload = {
             firstName: studentData.firstName,
             lastName: studentData.lastName,
@@ -99,6 +84,7 @@ export async function POST(request: NextRequest) {
 
     } catch (error: any) {
         console.error("Internal API Error:", error);
+        // Utiliser le SDK Admin peut générer des erreurs différentes, il est bon de les logger
         return NextResponse.json({ 
             success: false, 
             message: "Internal server error.", 
