@@ -2,44 +2,83 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { studentValidationSchema, type Student } from '@/lib/verigenius-types';
 import { adminDb } from '@/firebase/admin';
+import { initializeApp, getApps } from 'firebase/app';
+import { getFirestore, collection, query, where, getDocs, limit } from 'firebase/firestore';
+import { firebaseConfig } from '@/firebase/config';
 
-// Headers pour la gestion du CORS, au cas où vous en auriez besoin pour un client web à l'avenir
+// Initialize Firebase client app if not already initialized
+if (!getApps().length) {
+    initializeApp(firebaseConfig);
+}
+const db = getFirestore();
+
+
+// CORS Headers
 const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+async function logRequest(request: NextRequest, responseBody: object, statusCode: number) {
+    try {
+        const requestBody = await request.json().catch(() => ({}));
+        const clientIp = request.ip || request.headers.get('x-forwarded-for') || 'unknown';
+
+        await adminDb.collection('request-logs').add({
+            timestamp: new Date().toISOString(),
+            clientIp,
+            requestBody,
+            responseBody,
+            statusCode,
+            isSuccess: statusCode === 200,
+        });
+    } catch (logError) {
+        console.error("Failed to write to request-logs:", logError);
+    }
+}
+
+
 export async function OPTIONS(request: NextRequest) {
     return NextResponse.json({}, { headers: corsHeaders });
 }
 
 export async function POST(request: NextRequest) {
+    let responseBody: object;
+    let statusCode: number;
+
     try {
-        const requestBody = await request.json();
+        const requestBody = await request.clone().json();
 
         // 1. Validation des données d'entrée avec Zod
         const validation = studentValidationSchema.safeParse(requestBody);
         if (!validation.success) {
-            return NextResponse.json({ 
+            statusCode = 400;
+            responseBody = { 
                 success: false, 
                 message: "Invalid validation data.", 
                 errors: validation.error.flatten() 
-            }, { status: 400, headers: corsHeaders });
+            };
+            await logRequest(request, responseBody, statusCode);
+            return NextResponse.json(responseBody, { status: statusCode, headers: corsHeaders });
         }
 
         const { studentId, firstName, lastName } = validation.data;
 
-        // 2. Exécution de la requête avec le SDK Admin
-        const studentsRef = adminDb.collection('students');
-        const querySnapshot = await studentsRef.where('studentId', '==', studentId.toUpperCase()).limit(1).get();
+        // 2. Exécution de la requête avec le SDK Client
+        const studentsRef = collection(db, 'students');
+        const q = query(studentsRef, where('studentId', '==', studentId.toUpperCase()), limit(1));
+        const querySnapshot = await getDocs(q);
 
         // 3. Traitement des résultats
         if (querySnapshot.empty) {
-            return NextResponse.json({
+            statusCode = 404;
+            responseBody = {
                 success: false,
                 message: `Student with ID '${studentId}' not found.`,
-            }, { status: 404, headers: corsHeaders });
+            };
+            await logRequest(request, responseBody, statusCode);
+            return NextResponse.json(responseBody, { status: statusCode, headers: corsHeaders });
         }
 
         const studentDoc = querySnapshot.docs[0];
@@ -51,18 +90,24 @@ export async function POST(request: NextRequest) {
             studentData.firstName.toLowerCase() !== firstName.toLowerCase() || 
             studentData.lastName.toLowerCase() !== lastName.toLowerCase()
         ) {
-            return NextResponse.json({
+            statusCode = 403;
+            responseBody = {
                 success: false,
                 message: "Student ID, first name, or last name does not match.",
-            }, { status: 403, headers: corsHeaders });
+            };
+            await logRequest(request, responseBody, statusCode);
+            return NextResponse.json(responseBody, { status: statusCode, headers: corsHeaders });
         }
         
         // 5. Vérification du statut de l'étudiant
         if (studentData.status === 'inactive') {
-            return NextResponse.json({
+             statusCode = 403;
+             responseBody = {
                 success: false,
                 message: "Student account is inactive.",
-            }, { status: 403, headers: corsHeaders });
+            };
+            await logRequest(request, responseBody, statusCode);
+            return NextResponse.json(responseBody, { status: statusCode, headers: corsHeaders });
         }
 
         // 6. Si tout est correct, renvoyer la charge utile de succès
@@ -75,20 +120,26 @@ export async function POST(request: NextRequest) {
             status: studentData.status,
             classId: studentData.classId
         };
-
-        return NextResponse.json({
+        
+        statusCode = 200;
+        responseBody = {
             success: true,
             message: "Validation successful.",
             student: responsePayload
-        }, { status: 200, headers: corsHeaders });
+        };
+        await logRequest(request, responseBody, statusCode);
+        return NextResponse.json(responseBody, { status: statusCode, headers: corsHeaders });
 
     } catch (error: any) {
         console.error("Internal API Error:", error);
-        // Utiliser le SDK Admin peut générer des erreurs différentes, il est bon de les logger
-        return NextResponse.json({ 
+        statusCode = 500;
+        responseBody = { 
             success: false, 
             message: "Internal server error.", 
             error: error.message 
-        }, { status: 500, headers: corsHeaders });
+        };
+        // Can't log request body if it fails to parse, so we log the error message
+        await logRequest(request, { error: 'Failed to parse request or internal error', details: error.message }, statusCode);
+        return NextResponse.json(responseBody, { status: statusCode, headers: corsHeaders });
     }
 }

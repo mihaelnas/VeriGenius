@@ -19,7 +19,7 @@ service cloud.firestore {
     
     // Règle pour la collection des logs de l'API
     // Seuls les administrateurs connectés peuvent lire les journaux
-    // Personne ne peut écrire directement ici via cette méthode
+    // Personne ne peut écrire directement ici via cette méthode (seul le backend le peut)
     match /request-logs/{logId} {
         allow read: if request.auth != null;
         allow write: if false; // Block client-side writes

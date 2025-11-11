@@ -95,7 +95,7 @@ export default function LogsPage() {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell>{formatTimestamp(log.timestamp)}</TableCell>
-                                            <TableCell>{log.clientIp}</TableCell>
+                                            <TableCell>{log.clientIp || 'N/A'}</TableCell>
                                             <TableCell>
                                                 <pre className="text-xs bg-muted p-2 rounded-md font-mono">{JSON.stringify(log.requestBody, null, 2)}</pre>
                                             </TableCell>
